@@ -3,6 +3,15 @@
 
 export interface CItem { title: string; link: string; ts: number; source?: unknown; place?: string | null; placeLevel?: number; placeCountry?: string | null }
 
+const ENTITY_SKIP = new Set(
+  ("says said say after amid over into about with from that this they their just will new more most " +
+   "breaking update live video watch report reports official officials police government president minister " +
+   "monday tuesday wednesday thursday friday saturday sunday january february march april june july august " +
+   "september october november december today tonight yesterday sources source exclusive analysis opinion " +
+   "white house black young american national federal supreme court street party chief daily post times news press office oval " +
+   "too late save what why how who when where inside under before could would should will can may just more most many some new old big top best worst here there this that these those").split(" ")
+);
+
 const STOP = new Set(
   ("a an the of to in on for and or but at by with from as is are was were be been after over into about amid says say said new its it this that his her " +
    "their they he she you we not no up out more than how why what who will can could would has have had just now year years day days week first last " +
@@ -27,18 +36,36 @@ const SYN: Record<string, string> = {
   krakow: "krakow", cracow: "krakow",
 };
 
+function stem(w: string): string {
+  return SYN[w] ?? (w.length > 4 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w);
+}
+
 export function tokens(title: string): string[] {
   const out = new Set<string>();
   for (const raw of title.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/['’]s\b/g, "").replace(/[^a-z0-9 -]+/g, " ").split(/\s+/)) {
     const w = raw.replace(/^-+|-+$/g, "");
     if (w.length < 2 || STOP.has(w)) continue;
-    out.add(SYN[w] ?? (w.length > 4 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w));
+    out.add(stem(w));
+  }
+  return [...out];
+}
+
+/** Capitalized name-like tokens. One shared name (Trump) is not an event; two usually are (Nvidia + Huang). */
+export function entityTokens(title: string): string[] {
+  const out = new Set<string>();
+  for (const raw of title.split(/[^\p{L}\p{N}]+/u)) {
+    if (raw.length < 3) continue;
+    const nameLike = /^[A-Z][a-z]/.test(raw) || /^[A-Z]{3,}$/.test(raw);
+    if (!nameLike) continue;
+    const w = stem(raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/['’]s\b/g, ""));
+    if (w.length < 3 || STOP.has(w) || ENTITY_SKIP.has(w)) continue;
+    out.add(w);
   }
   return [...out];
 }
 
 const EVENT = new Set(["shoot", "attack", "kill", "blast", "quake", "vote", "truce", "strike", "arrest", "quit", "fire", "storm", "crash"]);
-const WINDOW_MS = 18 * 3600 * 1000;
+const WINDOW_MS = 36 * 3600 * 1000;
 // Generic words that can be rare in a big corpus and still not identify a story
 // ("leaves thousands without" matched a Gaza flood to a Ukraine blackout).
 const WEAK = new Set(
@@ -50,14 +77,14 @@ const WEAK = new Set(
    "claims warn warns call calls plan plans set sets ten tens made make take hit hits help helps").split(" ")
 );
 
-export interface Prepared<T extends CItem> { item: T; tok: string[]; set: Set<string> }
+export interface Prepared<T extends CItem> { item: T; tok: string[]; set: Set<string>; entities: string[] }
 
 export function prepare<T extends CItem>(items: T[]) {
   const df = new Map<string, number>();
   const prepped: Prepared<T>[] = items.map((item) => {
     const tok = tokens(item.title);
     for (const t of tok) df.set(t, (df.get(t) ?? 0) + 1);
-    return { item, tok, set: new Set(tok) };
+    return { item, tok, set: new Set(tok), entities: entityTokens(item.title) };
   });
   const N = Math.max(items.length, 1);
   const idf = (t: string) => Math.log((N + 1) / ((df.get(t) ?? 0) + 0.5));
@@ -65,7 +92,7 @@ export function prepare<T extends CItem>(items: T[]) {
   return { prepped, idf, isRare: (t: string) => idf(t) >= rareCut };
 }
 
-export function sameStory<T extends CItem>(a: Prepared<T>, b: Prepared<T>, idf: (t: string) => number, isRare: (t: string) => boolean): boolean {
+export function sameStory<T extends CItem>(a: Prepared<T>, b: Prepared<T>, idf: (t: string) => number, isRare: (t: string) => boolean, strict = false): boolean {
   if (a.item.link === b.item.link) return true;
   if (a.item.ts && b.item.ts && Math.abs(a.item.ts - b.item.ts) > WINDOW_MS) return false;
   let inter = 0, wShared = 0, rare = 0, evt = false, nonEvent = 0;
@@ -76,13 +103,17 @@ export function sameStory<T extends CItem>(a: Prepared<T>, b: Prepared<T>, idf: 
     else nonEvent++;
   }
   if (!inter) return false;
+  const sharedNames = a.entities.filter((token) => b.entities.includes(token));
+  // Two proper names plus another shared word (Nvidia + Huang + chips). One name (Trump) is not enough.
+  if (sharedNames.length >= 2 && inter >= 3) return true;
   const union = a.set.size + b.set.size - inter;
-  if (inter / union >= 0.5) return true;
+  if (inter / union >= 0.5 && (rare >= 1 || sharedNames.length >= 1 || inter >= 4)) return true;
   if (inter >= 4 && inter / Math.min(a.set.size, b.set.size) >= 0.75) return true;
   const wa = a.tok.reduce((s, t) => s + idf(t), 0), wb = b.tok.reduce((s, t) => s + idf(t), 0);
   const wContain = wShared / Math.max(1e-6, Math.min(wa, wb));
   if (wContain >= 0.55 && rare >= 2) return true;
   if (rare >= 3 && wContain >= 0.35) return true;
+  if (strict) return false;
   if (!evt || !a.item.place || !b.item.place) return false;
   if (a.item.place === b.item.place) {
     const lvl = a.item.placeLevel ?? 0;
@@ -111,7 +142,13 @@ export function group<T extends CItem>(items: T[]): T[][] {
   const n = prepped.length;
   const parent = prepped.map((_, i) => i);
   const size = prepped.map(() => 1);
+  const anchor = prepped.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const older = (x: number, y: number) => {
+    const tx = prepped[x].item.ts || Infinity;
+    const ty = prepped[y].item.ts || Infinity;
+    return tx <= ty ? x : y;
+  };
   const order = prepped.map((_, i) => i).sort((x, y) => prepped[y].item.ts - prepped[x].item.ts);
   for (let oi = 0; oi < n; oi++) {
     const i = order[oi];
@@ -126,7 +163,15 @@ export function group<T extends CItem>(items: T[]): T[][] {
       // A digest headline can match two different stories. Once each story is already a
       // group, don't glue the groups together through that bridge.
       if (size[ri] >= 2 && size[rj] >= 2) continue;
-      if (sameStory(prepped[i], prepped[j], idf, isRare)) { parent[rj] = ri; size[ri] += size[rj]; }
+      if (!sameStory(prepped[i], prepped[j], idf, isRare)) continue;
+      // Once a cluster has four stories, a newcomer must match its oldest member on
+      // words alone. That stops a city-and-crime bridge from swallowing unrelated files.
+      if (size[ri] >= 4 && !sameStory(prepped[j], prepped[anchor[ri]], idf, isRare, true)) continue;
+      if (size[rj] >= 4 && !sameStory(prepped[i], prepped[anchor[rj]], idf, isRare, true)) continue;
+      const kept = older(anchor[ri], anchor[rj]);
+      parent[rj] = ri;
+      size[ri] += size[rj];
+      anchor[ri] = kept;
     }
   }
   const byRoot = new Map<number, T[]>();

@@ -3,7 +3,7 @@ import { XMLParser } from "fast-xml-parser";
 import { SOFT, SOURCES, type Category, type Source } from "./sources.ts";
 import { REVALIDATE_SECONDS, SITE } from "./config.ts";
 import { locate } from "./locator.ts";
-import { group } from "./cluster.ts";
+import { group, tokens } from "./cluster.ts";
 import { tagFor, type Tag } from "./tags.ts";
 import type { Place } from "./places.ts";
 import { canonicalLink, dedupeStories } from "./dedupe.ts";
@@ -25,10 +25,20 @@ export interface Item {
   alts?: ItemAlt[];
 }
 
+export interface ClusterMember {
+  title: string;
+  link: string;
+  snippet: string;
+  ts: number;
+  source: string;
+  image: string | null;
+}
+
 export interface Cluster {
-  id: string; // stable: hash of the earliest member's link
+  id: string; // stable: hash of the earliest member's canonical link, not the current lead
   lead: Item;
   also: { name: string; link: string }[];
+  members: ClusterMember[];
   categories: Category[];
   breaking: boolean;
   score: number;
@@ -246,10 +256,25 @@ export function hash(s: string): string {
   return (h >>> 0).toString(36) + (h2 % 46656).toString(36).padStart(3, "0");
 }
 
+export function stableClusterId(link: string): string {
+  return hash(canonicalLink(link) || link);
+}
+
+function authority(name: string): number {
+  if (/^(Reuters|Associated Press|AFP|BBC|NPR|PBS)/.test(name)) return 4;
+  if (/^(The New York Times|The Washington Post|The Wall Street Journal|The Guardian|Bloomberg)/.test(name)) return 3;
+  return 0;
+}
+
+function leadHeat(item: Item, now: number): number {
+  const ageH = item.ts ? (now - item.ts) / HOUR : 72;
+  return authority(item.source.name) * 3 + (item.image ? 1 : 0) - ageH * 0.25;
+}
+
 function clustersFrom(groups: Item[][], now: number, satire: boolean): Cluster[] {
   const clusters: Cluster[] = [];
   for (const members of groups) {
-    const lead = members[0]; // newest first
+    const lead = members.slice().sort((a, b) => leadHeat(b, now) - leadHeat(a, now) || b.ts - a.ts)[0];
     const anchor = [...members].sort((a, b) => (a.ts || Infinity) - (b.ts || Infinity))[0];
     const also: { name: string; link: string }[] = [];
     const cats: Category[] = [];
@@ -264,9 +289,12 @@ function clustersFrom(groups: Item[][], now: number, satire: boolean): Cluster[]
     const images = [...new Set([lead.image, ...members.map((m) => m.image)].filter((x): x is string => !!x))];
     const image = images[0] ?? null;
     const geo = members.map((m) => m.geo).filter(Boolean).sort((a, b) => b!.level - a!.level)[0] ?? null;
+    const file = members
+      .map((m) => ({ title: m.title, link: m.link, snippet: m.snippet, ts: m.ts, source: m.source.name, image: m.image }))
+      .sort((a, b) => (a.ts || Infinity) - (b.ts || Infinity));
     // Satire outlets are not clearance sources. The count stays on the cluster for the
     // "+ more outlets" line, but the badge is DISINFO and the number is not a level.
-    const c: Cluster = { id: hash(canonicalLink(anchor.link) || anchor.link), lead, also, categories: cats, breaking: false, score: 0, tag: null, image, geo, outlets: satire ? 0 : 1 + also.length, links: members.map((m) => m.link), images, satire };
+    const c: Cluster = { id: hash(canonicalLink(anchor.link) || anchor.link), lead, also, members: file, categories: cats, breaking: false, score: 0, tag: null, image, geo, outlets: satire ? 0 : 1 + also.length, links: members.map((m) => m.link), images, satire };
     if (!satire) {
       c.breaking = isBreaking(c, now);
       c.tag = tagFor({ title: lead.title, snippet: lead.snippet, category: lead.source.category, categories: cats, breaking: c.breaking });
@@ -341,6 +369,21 @@ export function inCategory(w: Wire, cat: Category | "breaking"): Cluster[] {
   // entertainment feed also ran (a shooting, a crash) stays on the news desks
   if (SOFT.includes(cat)) return w.clusters.filter((c) => !c.satire && c.categories.includes(cat) && SOFT.includes(c.lead.source.category));
   return w.clusters.filter((c) => !c.satire && c.categories.includes(cat));
+}
+
+export function findCluster(clusters: Cluster[], id: string): Cluster | undefined {
+  return clusters.find((c) => c.id === id);
+}
+
+export function relatedClusters(clusters: Cluster[], current: Cluster, limit = 4): Cluster[] {
+  const mine = new Set(tokens(current.lead.title));
+  return clusters
+    .filter((c) => c.id !== current.id && c.satire === current.satire)
+    .map((c) => ({ c, n: tokens(c.lead.title).filter((token) => mine.has(token)).length }))
+    .filter((row) => row.n >= 2)
+    .sort((a, b) => b.n - a.n || b.c.score - a.c.score)
+    .slice(0, limit)
+    .map((row) => row.c);
 }
 
 export function topStory(w: Wire): Cluster | undefined {

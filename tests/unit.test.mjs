@@ -315,3 +315,36 @@ test('dedupe copies before ranking, and leaves different headlines alone', () =>
   assert.equal(rows[0].breaking, true);
   assert.equal(rows[0].image, 'https://cdn.example/bulwark.jpg');
 });
+
+test('event grouping: Nvidia names merge, a lone Trump token does not, satire stays out, chains stop', () => {
+  const now = Date.parse('2026-11-09T18:00:00Z');
+  const mk = (title, name, h, category = 'world') => ({
+    title, link: 'https://ex/' + encodeURIComponent(title), ts: now - h * 3600e3, source: { name, category },
+  });
+  const nvidia = [
+    mk('Nvidia chief Jensen Huang warns spy agencies are watching chip exports', 'CNA', 1),
+    mk('Jensen Huang says Nvidia is caught between Washington and Beijing', 'The Guardian', 3),
+    mk('NY Post: Huang and Nvidia briefed as spy chiefs eye AI chips', 'New York Post', 5),
+    mk('Spy rules put Nvidia CEO Jensen Huang in the middle of the chip fight', 'Reuters', 2),
+  ];
+  const trump = [
+    mk('Trump hosts a UFC press conference with Dana White', 'The Bulwark', 1, 'politics'),
+    mk('Trump signs a broad tariff package at the White House', 'CNN', 2, 'politics'),
+    mk('Trump rally in Ohio draws a crowd ahead of the midterms', 'NPR', 4, 'politics'),
+  ];
+  const satire = mk('Nvidia chief Jensen Huang warns spy agencies are watching chip exports', 'The Babylon Bee', 1, 'satire');
+  const groups = group([...nvidia, ...trump, satire]);
+  const found = (item) => groups.find((bucket) => bucket.includes(item));
+  const nvidiaGroup = found(nvidia[0]);
+  for (const item of nvidia) assert.ok(nvidiaGroup.includes(item), item.title);
+  assert.ok(!nvidiaGroup.includes(satire));
+  assert.equal(found(satire).length, 1);
+  const trumpGroup = found(trump[0]);
+  assert.ok(!trumpGroup.includes(trump[1]), 'tariff story must stay separate');
+  assert.ok(!trumpGroup.includes(trump[2]), 'rally story must stay separate');
+  const bridge = mk('Jensen Huang of Nvidia praises the Tampa manatee rescue after the briefing', 'CNA', 0.5);
+  const manatee = mk('Tampa manatee rescue teams save a dozen animals after the storm', 'Local News', 8);
+  const chained = group([...nvidia, bridge, manatee]);
+  const nvidiaFile = chained.find((bucket) => bucket.includes(nvidia[0]));
+  assert.ok(!nvidiaFile.includes(manatee), 'a bridge headline must not chain an unrelated rescue into the Nvidia file');
+});

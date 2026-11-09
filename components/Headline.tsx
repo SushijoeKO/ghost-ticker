@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Cluster } from "@/lib/feeds";
 import RelTime from "./RelTime";
 import Thumb from "./Thumb";
@@ -17,13 +18,13 @@ const LEAN_STYLE: Record<string, string> = {
 
 export default function Headline({ c, now, showLean = false, showSnippet = false, index, card = false, votes = 0, decrypt = false }: { c: Cluster; now: number; showLean?: boolean; showSnippet?: boolean; index?: number; card?: boolean; votes?: number; decrypt?: boolean }) {
   const { lead } = c;
-  const label = `${lead.title} (opens ${lead.source.name} in a new tab)`;
+  const label = `${lead.title} (opens the story file)`;
   return (
     <li className={`headline group py-2.5 ${card ? "headline-card" : ""} ${card && !c.image ? "headline-card-text" : ""}`} data-testid="headline" data-id={c.id} data-tag={c.tag?.name ?? ""}>
       {card && c.image && (
-        <a href={lead.link} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-hidden="true" className="mb-2 block overflow-hidden rounded border border-zinc-800">
+        <Link href={`/story/${c.id}`} tabIndex={-1} aria-hidden="true" className="mb-2 block overflow-hidden rounded border border-zinc-800">
           <Thumb src={c.image} source={lead.source.name} title={lead.title} ratio="16/9" className="w-full" />
-        </a>
+        </Link>
       )}
       <div className="flex gap-3">
         {index !== undefined && !card && (
@@ -32,16 +33,16 @@ export default function Headline({ c, now, showLean = false, showSnippet = false
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <a href={lead.link} target="_blank" rel="noopener noreferrer" aria-label={label}
+          <Link href={`/story/${c.id}`} aria-label={label} data-testid="story-link"
             className={`headline-link font-semibold leading-snug text-zinc-100 decoration-emerald-400/70 underline-offset-2 hover:text-emerald-300 hover:underline focus-visible:text-emerald-300 ${card ? "text-lg" : ""}`}>
             {c.satire && <SatireBadge />}
             <TagBadge tag={c.tag} />
             <Decrypt id={c.id} text={lead.title} play={card || decrypt} />
-            <span className="sr-only"> (opens {lead.source.name} in a new tab)</span>
-          </a>
+            <span className="sr-only"> (opens the story file)</span>
+          </Link>
           {(showSnippet || card) && lead.snippet && <p className="mt-1 text-sm leading-snug text-zinc-400">{lead.snippet}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] uppercase tracking-wide text-zinc-400">
-            <span className="text-emerald-300/90" data-testid="source">{lead.source.name}</span>
+            <a href={lead.link} target="_blank" rel="noopener noreferrer" className="text-emerald-300/90 hover:underline" data-testid="source">{lead.source.name}</a>
             {showLean && <span data-testid="lean" className={`rounded-sm border px-1 normal-case ${LEAN_STYLE[lead.source.lean] ?? ""}`}>{lead.source.lean}</span>}
             <span aria-hidden="true">//</span>
             <RelTime ts={lead.ts} serverNow={now} />
@@ -62,9 +63,9 @@ export default function Headline({ c, now, showLean = false, showSnippet = false
           {card && <AgentNote also={c.also.map((a) => a.name)} place={c.geo?.name} />}
         </div>
         {!card && c.image && (
-          <a href={lead.link} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-hidden="true" className="gt-side-thumb self-start shrink-0 overflow-hidden rounded border border-zinc-800">
+          <Link href={`/story/${c.id}`} tabIndex={-1} aria-hidden="true" className="gt-side-thumb self-start shrink-0 overflow-hidden rounded border border-zinc-800">
             <Thumb src={c.image} source={lead.source.name} title={lead.title} ratio="4/3" className="w-full" />
-          </a>
+          </Link>
         )}
       </div>
     </li>

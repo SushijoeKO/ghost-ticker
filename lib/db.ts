@@ -1,7 +1,8 @@
 // Server-only Supabase access. Never import this from a "use client" file.
 // SUPABASE_URL / SUPABASE_ANON_KEY are used only on the server (the browser talks to our own /api routes),
 // and GT_INGEST_KEY is a server-only secret that authorizes the gt_ingest RPC.
-import type { Cluster } from "./feeds";
+import { stableClusterId, type Cluster } from "./feeds.ts";
+import { group } from "./cluster.ts";
 import { dedupeArchive } from "./dedupe.ts";
 
 const URL_ = process.env.SUPABASE_URL;
@@ -111,10 +112,35 @@ export async function ingest(clusters: Cluster[], idOverride?: string): Promise<
 }
 
 export const search = (q: string) => rpc<(ArchiveRow & { rank: number })[]>("gt_search", { p_q: q, p_limit: 50 });
+function clusterTrending<T extends ArchiveRow & { score?: number }>(rows: T[]): T[] {
+  const tagged = rows.map((row) => ({
+    title: row.title,
+    link: row.link,
+    ts: row.published_at ? Date.parse(row.published_at) || 0 : 0,
+    source: { name: row.source, category: row.category },
+    row,
+  }));
+  return group(tagged).map((members) => {
+    const ranked = members.slice().sort((a, b) => (b.row.votes || 0) - (a.row.votes || 0) || (b.row.score || 0) - (a.row.score || 0) || b.ts - a.ts);
+    const lead = ranked[0].row;
+    const earliest = members.slice().sort((a, b) => (a.ts || Infinity) - (b.ts || Infinity))[0];
+    const names = new Set(members.map((member) => member.row.source));
+    return {
+      ...lead,
+      id: members.length === 1 ? lead.id : stableClusterId(earliest.link),
+      image: lead.image || members.map((member) => member.row.image).find((image) => !!image) || null,
+      votes: members.reduce((sum, member) => sum + (member.row.votes || 0), 0),
+      score: members.reduce((sum, member) => sum + (member.row.score || 0), 0),
+      breaking: members.some((member) => member.row.breaking),
+      outlets: Math.max(lead.outlets || 0, ...members.map((member) => member.row.outlets || 0), names.size),
+    };
+  }).sort((a, b) => (b.score || 0) - (a.score || 0));
+}
+
 export async function trending(n = 20, revalidate = 60) {
   const rows = await rpc<(ArchiveRow & { score: number })[]>("gt_trending", { p_limit: Math.min(Math.max(n * 2, n), 80) }, { revalidate });
   if (!rows) return null;
-  return dedupeArchive(rows).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, n);
+  return clusterTrending(dedupeArchive(rows)).slice(0, n);
 }
 export const vote = (item: string, voter: string) => rpc<{ ok: boolean; already?: boolean; votes?: number; error?: string }>("gt_vote", { p_item: item, p_voter: voter });
 

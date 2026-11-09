@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Cluster } from "@/lib/feeds";
 import RelTime from "./RelTime";
 import Thumb from "./Thumb";
@@ -17,15 +18,15 @@ export default function TopBanner({ c, now, votes = 0 }: { c?: Cluster; now: num
             {c.breaking ? "Flash traffic · top story" : "Top story"}
           </p>
           <h2 id="top-story" className="mt-3 max-w-5xl text-2xl font-black uppercase leading-tight text-white sm:text-4xl">
-            <a href={lead.link} target="_blank" rel="noopener noreferrer" aria-label={`${lead.title} (opens ${lead.source.name} in a new tab)`} className="hover:underline decoration-red-400 underline-offset-4">
+            <Link href={`/story/${c.id}`} data-testid="story-link" aria-label={`${lead.title} (opens the story file)`} className="hover:underline decoration-red-400 underline-offset-4">
               <TagBadge tag={c.tag} />
               <Decrypt id={c.id} text={lead.title} play />
-              <span className="sr-only"> (opens {lead.source.name} in a new tab)</span>
-            </a>
+              <span className="sr-only"> (opens the story file)</span>
+            </Link>
           </h2>
           {lead.snippet && <p className="mt-3 max-w-3xl text-zinc-300">{lead.snippet}</p>}
           <p className="mt-4 flex flex-wrap items-center gap-2 font-mono text-xs uppercase tracking-wider text-zinc-300">
-            <span className="text-red-300">{lead.source.name}</span> <span aria-hidden="true">//</span> <RelTime ts={lead.ts} serverNow={now} />
+            <a href={lead.link} target="_blank" rel="noopener noreferrer" className="text-red-300 hover:underline">{lead.source.name}</a> <span aria-hidden="true">//</span> <RelTime ts={lead.ts} serverNow={now} />
             <ClearanceBadge outlets={c.outlets} />
             <VoteButton id={c.id} initial={votes} title={lead.title} link={lead.link} />
           </p>
@@ -39,10 +40,10 @@ export default function TopBanner({ c, now, votes = 0 }: { c?: Cluster; now: num
           <AgentNote also={c.also.map((a) => a.name)} place={c.geo?.name} />
         </div>
         {c.image && (
-          <a href={lead.link} target="_blank" rel="noopener noreferrer" tabIndex={-1} aria-hidden="true" className="relative block self-start overflow-hidden rounded border border-red-900/70">
+          <Link href={`/story/${c.id}`} tabIndex={-1} aria-hidden="true" className="relative block self-start overflow-hidden rounded border border-red-900/70">
             <Thumb src={c.image} source={lead.source.name} title={lead.title} ratio="16/9" className="w-full" eager />
             <span className="pointer-events-none absolute right-2 top-2 rotate-6 border-2 border-red-500/70 bg-black/50 px-2 font-mono text-xs font-black tracking-[0.3em] text-red-400" aria-hidden="true">EYES ONLY</span>
-          </a>
+          </Link>
         )}
       </div>
     </section>
