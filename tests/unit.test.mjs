@@ -7,6 +7,7 @@ import { makeLocator } from '../lib/places.ts';
 import { group } from '../lib/cluster.ts';
 import { buildClusters, inCategory, isBreaking, topStory } from '../lib/feeds.ts';
 import { INGEST_BATCH_LIMIT, archiveQueue, planIngest } from '../lib/db.ts';
+import { filterPosts, hasTweetList, INTERCEPT_QUERY, linkify, mergePosts, nextCursor, parseTweets } from '../lib/intercepts.ts';
 
 const locate = makeLocator(JSON.parse(fs.readFileSync(new URL('../lib/gazetteer.json', import.meta.url))));
 
@@ -228,6 +229,36 @@ test('satire isolation: not breaking, not the top story, not merged with news, n
     { title, link: joke.link, ts: joke.ts, source: bee },
   ]);
   assert.equal(raw.length, 2);
+});
+
+test('intercepts fixture parses, caps, and filters without keeping bad rows', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/intercepts.json', import.meta.url)));
+  assert.equal(hasTweetList(fixture), true);
+  assert.equal(hasTweetList({ error: 'nope' }), false);
+  assert.equal(nextCursor(fixture), null);
+  assert.equal(nextCursor({ tweets: [], has_next_page: true, next_cursor: 'page-2' }), 'page-2');
+  const posts = parseTweets(fixture);
+  assert.deepEqual(posts.map((post) => post.handle), ['BBCBreaking', 'NPR', 'Reuters']);
+  assert.equal(posts[0].createdAt, Date.parse('Mon Nov 09 23:00:53 +0000 2026'));
+  assert.equal(posts[0].name, 'BBC Breaking');
+  assert.equal(posts[2].url, 'https://x.com/Reuters/status/1003');
+  assert.ok(posts[2].text.includes('<script>'));
+  const long = 'x'.repeat(400);
+  const capped = parseTweets({ tweets: [{ id: '9', text: long, createdAt: 'Mon Nov 09 23:00:53 +0000 2026', author: { userName: 'Kalshi', name: 'Kalshi' }, url: 'https://x.com/Kalshi/status/9' }] });
+  assert.equal(capped[0].text.length, 280);
+  assert.ok(capped[0].text.endsWith('…'));
+  const merged = mergePosts([posts, [posts[0], { ...posts[1], id: '1002b', createdAt: posts[0].createdAt + 1000 }]]);
+  assert.equal(merged[0].id, '1002b');
+  assert.equal(merged.filter((post) => post.id === '1001').length, 1);
+  assert.deepEqual(filterPosts(posts, 'all').map((post) => post.id), ['1001', '1002', '1003']);
+  assert.deepEqual(filterPosts(posts, 'NPR').map((post) => post.handle), ['NPR']);
+  assert.deepEqual(filterPosts(posts, 'npr').map((post) => post.id), ['1002']);
+  assert.equal(filterPosts(posts, 'Kalshi').length, 0);
+  const parts = linkify(posts[0].text);
+  assert.deepEqual(parts.filter((part) => part.kind === 'link').map((part) => part.value), ['https://example.com/bridge']);
+  assert.equal(linkify(posts[1].text).some((part) => part.kind === 'link'), false);
+  assert.ok(INTERCEPT_QUERY.includes('from:Polymarket OR from:Kalshi OR from:ExxAlerts'));
+  assert.equal(INTERCEPT_QUERY.split(' OR ').length, 11);
 });
 
 test('clearance cutoffs: L1 1, L2 2–3, L3 4–6, L4 COSMIC 7+', () => {

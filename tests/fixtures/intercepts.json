@@ -1,0 +1,40 @@
+{
+  "tweets": [
+    {
+      "id": "1001",
+      "url": "https://x.com/BBCBreaking/status/1001",
+      "text": "Bridge closed. Details at https://example.com/bridge.",
+      "createdAt": "Mon Nov 09 23:00:53 +0000 2026",
+      "author": { "userName": "BBCBreaking", "name": "BBC Breaking", "profilePicture": "https://pbs.twimg.com/profile.jpg" }
+    },
+    {
+      "id": "1002",
+      "url": "https://x.com/NPR/status/1002",
+      "text": "NPR desk note. Ignore http://insecure.example/secret.",
+      "createdAt": "Mon Nov 09 22:00:00 +0000 2026",
+      "author": { "userName": "NPR", "name": "NPR" }
+    },
+    {
+      "id": 1003,
+      "url": "javascript:alert(1)",
+      "text": "Reuters item <script>alert(1)</script>",
+      "createdAt": "Mon Nov 09 21:00:00 +0000 2026",
+      "author": { "userName": "Reuters", "name": "Reuters" }
+    },
+    {
+      "id": "1004",
+      "url": "https://x.com/cnnbrk/status/1004",
+      "text": "THIS TEXT IS LONG ",
+      "createdAt": "not-a-date",
+      "author": { "userName": "cnnbrk", "name": "CNN Breaking" }
+    },
+    {
+      "id": "",
+      "text": "missing id",
+      "createdAt": "Mon Nov 09 20:00:00 +0000 2026",
+      "author": { "userName": "Kalshi", "name": "Kalshi" }
+    }
+  ],
+  "has_next_page": false,
+  "next_cursor": ""
+}

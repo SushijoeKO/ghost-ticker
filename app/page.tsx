@@ -16,11 +16,13 @@ import { ingest, trending, voteCounts } from "@/lib/db";
 import { getVideos } from "@/lib/videos";
 import { pinnedPosts } from "@/lib/pinned";
 import { SOFT } from "@/lib/sources";
+import { getIntercepts } from "@/lib/intercepts-server";
 
 export const revalidate = 300;
 export const metadata: Metadata = { alternates: { canonical: "/" } };
 
 export default async function Home() {
+  const interceptsPromise = getIntercepts();
   const w = await getWire();
   const now = w.fetchedAt;
   // archive this sweep (server-side, secret key never leaves the server); failures are ignored
@@ -89,7 +91,7 @@ export default async function Home() {
             </section>
             <Section id="latest" title="Latest wire" code="PRIORITY" items={latest} now={now} more="/c/top" votes={votes} leadCard={false} />
             <AdSlot kind="sidebar" />
-            <XFeed />
+            <XFeed posts={await interceptsPromise} serverNow={Date.now()} />
           </aside>
         </div>
         <VideoStrip videos={videos} />
