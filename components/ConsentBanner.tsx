@@ -34,7 +34,7 @@ export default function ConsentBanner() {
         <div className="text-sm text-zinc-300">
           <p id="consent-title" className="font-mono text-xs font-bold uppercase tracking-[0.2em] text-emerald-300">Privacy clearance</p>
           <p className="mt-1">
-            Ghost Ticker uses no tracking or analytics. If advertising is switched on in the future, ad partners may use cookies to
+            Ghost Ticker uses Vercel Web Analytics, which counts anonymized page views without cookies or cross-site identifiers. If advertising is switched on in the future, ad partners may use cookies to
             personalise ads. Choose whether you allow that; you can change it any time from the footer. See the{" "}
             <Link href="/privacy" className="text-emerald-300 underline">Privacy Policy</Link>.
           </p>

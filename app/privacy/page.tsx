@@ -12,7 +12,7 @@ export default function Privacy() {
       <h2>What we collect</h2>
       <ul>
         <li>No accounts, no sign-up, no comments. We do not ask for your name, email or any personal details.</li>
-        <li>No analytics or tracking scripts are used on this site.</li>
+        <li>We use Vercel Web Analytics, which counts anonymized page views without cookies or cross-site identifiers. See <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">Vercel's privacy policy</a>.</li>
         <li>Your privacy choice, display settings (CRT effect, sound alerts) and the list of stories you upvoted are saved only in your own browser (local storage).</li>
         <li><strong>Upvotes:</strong> the first time you upvote, your browser makes a random anonymous ID (a UUID, not linked to your name, email, IP address or device) and keeps it in local storage. When you vote, that ID and the story ID are stored in our database (hosted by Supabase) so each browser counts once per story and to limit abuse (for example, a few votes per minute). Votes are kept with the story for about 7 days and then deleted. Clearing your browser storage removes the ID from your device.</li>
         <li><strong>Search:</strong> search terms are sent to our server to query the headline archive; we don’t store them in our database.</li>
