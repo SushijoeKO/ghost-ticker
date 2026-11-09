@@ -9,6 +9,7 @@ import AdSlot from "@/components/AdSlot";
 import MapView from "@/components/MapView";
 import VideoStrip from "@/components/VideoStrip";
 import XEmbeds from "@/components/XEmbeds";
+import XFeed from "@/components/XFeed";
 import TrendingList from "@/components/TrendingList";
 import { balanceByLean, diversify, getWireWithImages as getWire, inCategory, pinsFrom, topStory, type Cluster } from "@/lib/feeds";
 import { ingest, trending, voteCounts } from "@/lib/db";
@@ -71,7 +72,7 @@ export default async function Home() {
             <Section id="politics" title="Politics" code="CAPITOL" items={politics} now={now} more="/c/politics" showLean adAfter={8} accent="amber" votes={votes} />
             <Section id="weird" title="Weird" code="ANOMALY" items={weird} now={now} more="/c/weird" accent="violet" votes={votes} />
           </div>
-          <aside className="space-y-6" aria-label="Map, trending and latest wire">
+          <aside className="min-w-0 space-y-6" aria-label="Map, trending, latest wire and X">
             <section aria-labelledby="h-minimap" className="panel">
               <header className="panel-head flex items-center justify-between gap-2">
                 <h2 id="h-minimap" className="flex items-center gap-2 font-mono text-sm font-bold uppercase tracking-[0.18em] text-zinc-100"><span className="inline-block h-3 w-1.5 bg-cyan-400" aria-hidden="true" />Live map<span className="text-[10px] font-normal tracking-[0.25em] text-zinc-500">/GEOINT</span></h2>
@@ -88,6 +89,7 @@ export default async function Home() {
             </section>
             <Section id="latest" title="Latest wire" code="PRIORITY" items={latest} now={now} more="/c/top" votes={votes} leadCard={false} />
             <AdSlot kind="sidebar" />
+            <XFeed />
           </aside>
         </div>
         <VideoStrip videos={videos} />
