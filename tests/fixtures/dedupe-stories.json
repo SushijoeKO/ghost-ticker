@@ -1,0 +1,81 @@
+{
+  "utm": [
+    {
+      "title": "Trump Hosts Ridiculous Press Conference with UFC CEO Dana White",
+      "link": "https://www.thebulwark.com/p/trump-ufc?utm_source=rss&utm_medium=feed&fbclid=abc123&gclid=zzz&ref=homepage#live",
+      "ts": 2000,
+      "source": "The Bulwark",
+      "image": "https://cdn.example/bulwark.jpg",
+      "guid": "bulwark-ufc-1"
+    },
+    {
+      "title": "Trump Hosts Ridiculous Press Conference with UFC CEO Dana White",
+      "link": "https://thebulwark.com/p/trump-ufc/",
+      "ts": 1000,
+      "source": "The Bulwark",
+      "image": null,
+      "guid": "tag:thebulwark.com,2026:ufc"
+    }
+  ],
+  "twoFeeds": [
+    {
+      "title": "Senate Releases the Midnight Funding Text",
+      "link": "https://www.thebulwark.com/p/midnight-text",
+      "ts": 5000,
+      "source": "The Bulwark",
+      "image": null
+    },
+    {
+      "title": "Senate Releases the Midnight Funding Text",
+      "link": "https://thebulwark.com/feeds/politics/midnight-text?rss=1",
+      "ts": 4000,
+      "source": "The Bulwark",
+      "image": "https://cdn.example/senate.jpg"
+    }
+  ],
+  "entities": [
+    {
+      "title": "Trump&#39;s Border Memo Leaks Early",
+      "link": "https://www.thebulwark.com/p/border-memo?utm_campaign=am",
+      "ts": 3000,
+      "source": "The Bulwark"
+    },
+    {
+      "title": "Trump's Border Memo Leaks Early",
+      "link": "https://thebulwark.com/p/border-memo-copy",
+      "ts": 2500,
+      "source": "The Bulwark",
+      "image": "https://cdn.example/memo.jpg"
+    }
+  ],
+  "distinct": [
+    {
+      "title": "Nvidia shares jump after chip earnings",
+      "link": "https://www.channelnewsasia.com/business/nvidia-earnings",
+      "ts": 8000,
+      "source": "CNA"
+    },
+    {
+      "title": "Chipmaker Nvidia beats forecasts as AI spending rises",
+      "link": "https://www.theguardian.com/technology/nvidia-forecasts",
+      "ts": 7900,
+      "source": "The Guardian"
+    }
+  ],
+  "guid": [
+    {
+      "title": "Guid story alpha from the morning wire",
+      "link": "https://example.com/guid-a",
+      "ts": 1500,
+      "source": "Example Desk",
+      "guid": "urn:story:77"
+    },
+    {
+      "title": "Guid story beta rewritten for the evening",
+      "link": "https://example.com/guid-b",
+      "ts": 1800,
+      "source": "Example Desk",
+      "guid": "URN:story:77"
+    }
+  ]
+}

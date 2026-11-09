@@ -6,6 +6,9 @@ import { locate } from "./locator.ts";
 import { group } from "./cluster.ts";
 import { tagFor, type Tag } from "./tags.ts";
 import type { Place } from "./places.ts";
+import { canonicalLink, dedupeStories } from "./dedupe.ts";
+
+export interface ItemAlt { name: string; link: string; category: Category }
 
 export interface Item {
   title: string;
@@ -18,6 +21,8 @@ export interface Item {
   placeLevel?: number;
   placeCountry?: string | null;
   geo: Place | null;
+  guid?: string;
+  alts?: ItemAlt[];
 }
 
 export interface Cluster {
@@ -169,7 +174,8 @@ export function parseFeed(xml: string, source: Source, now = Date.now()): Item[]
     if (snippet.length > SNIPPET_MAX) snippet = snippet.slice(0, SNIPPET_MAX).replace(/\s+\S*$/, "") + "…";
     const t = title.slice(0, 220);
     const geo = locate(t, snippet);
-    items.push({ title: t, link, snippet, ts, image: imageOf(e as Record<string, any>), source, geo, place: geo?.name ?? null, placeLevel: geo?.level, placeCountry: geo?.country ?? null });
+    const guid = text(e.guid).trim();
+    items.push({ title: t, link, snippet, ts, image: imageOf(e as Record<string, any>), source, geo, place: geo?.name ?? null, placeLevel: geo?.level, placeCountry: geo?.country ?? null, guid: guid || undefined });
   }
   return items.slice(0, 40);
 }
@@ -250,13 +256,17 @@ function clustersFrom(groups: Item[][], now: number, satire: boolean): Cluster[]
     for (const m of members) {
       if (!cats.includes(m.source.category)) cats.push(m.source.category);
       if (m !== lead && m.source.name !== lead.source.name && !also.some((a) => a.name === m.source.name)) also.push({ name: m.source.name, link: m.link });
+      for (const alt of m.alts ?? []) {
+        if (!cats.includes(alt.category)) cats.push(alt.category);
+        if (alt.name !== lead.source.name && !also.some((a) => a.name === alt.name)) also.push({ name: alt.name, link: alt.link });
+      }
     }
     const images = [...new Set([lead.image, ...members.map((m) => m.image)].filter((x): x is string => !!x))];
     const image = images[0] ?? null;
     const geo = members.map((m) => m.geo).filter(Boolean).sort((a, b) => b!.level - a!.level)[0] ?? null;
     // Satire outlets are not clearance sources. The count stays on the cluster for the
     // "+ more outlets" line, but the badge is DISINFO and the number is not a level.
-    const c: Cluster = { id: hash(anchor.link), lead, also, categories: cats, breaking: false, score: 0, tag: null, image, geo, outlets: satire ? 0 : 1 + also.length, links: members.map((m) => m.link), images, satire };
+    const c: Cluster = { id: hash(canonicalLink(anchor.link) || anchor.link), lead, also, categories: cats, breaking: false, score: 0, tag: null, image, geo, outlets: satire ? 0 : 1 + also.length, links: members.map((m) => m.link), images, satire };
     if (!satire) {
       c.breaking = isBreaking(c, now);
       c.tag = tagFor({ title: lead.title, snippet: lead.snippet, category: lead.source.category, categories: cats, breaking: c.breaking });
@@ -268,13 +278,35 @@ function clustersFrom(groups: Item[][], now: number, satire: boolean): Cluster[]
   return clusters;
 }
 
+function mergeItems(earlier: Item, later: Item): Item {
+  const alts = [...(earlier.alts ?? [])];
+  const push = (name: string, link: string, category: Category) => {
+    if (!name || name === earlier.source.name || alts.some((alt) => alt.name === name)) return;
+    alts.push({ name, link, category });
+  };
+  for (const alt of later.alts ?? []) push(alt.name, alt.link, alt.category);
+  push(later.source.name, later.link, later.source.category);
+  return { ...earlier, image: earlier.image || later.image, guid: earlier.guid || later.guid, alts: alts.length ? alts : undefined };
+}
+
+export function dedupeItems(items: Item[]): Item[] {
+  return dedupeStories(items, {
+    link: (item) => item.link,
+    guid: (item) => item.guid ?? "",
+    title: (item) => item.title,
+    outlet: (item) => item.source.name,
+    published: (item) => item.ts,
+    satire: (item) => item.source.category === "satire",
+    merge: mergeItems,
+  });
+}
+
 export function buildClusters(items: Item[], now = Date.now()): Cluster[] {
-  // drop exact duplicate links first (same story in two feeds of one outlet)
-  const byLink = new Map<string, Item>();
-  for (const it of items) if (!byLink.has(it.link)) byLink.set(it.link, it);
+  // Collapse exact copies (canonical link, guid, or normalized title) before ranking.
+  const unique = dedupeItems(items);
   const news: Item[] = [];
   const jokes: Item[] = [];
-  for (const it of byLink.values()) (it.source.category === "satire" ? jokes : news).push(it);
+  for (const it of unique) (it.source.category === "satire" ? jokes : news).push(it);
   // Cluster the two desks separately so a joke can never raise a news story's outlet count.
   const clusters = [...clustersFrom(group(news), now, false), ...clustersFrom(group(jokes), now, true)];
   return clusters.sort((a, b) => b.lead.ts - a.lead.ts);

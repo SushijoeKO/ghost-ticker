@@ -2,6 +2,7 @@
 // SUPABASE_URL / SUPABASE_ANON_KEY are used only on the server (the browser talks to our own /api routes),
 // and GT_INGEST_KEY is a server-only secret that authorizes the gt_ingest RPC.
 import type { Cluster } from "./feeds";
+import { dedupeArchive } from "./dedupe.ts";
 
 const URL_ = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_ANON_KEY;
@@ -110,7 +111,11 @@ export async function ingest(clusters: Cluster[], idOverride?: string): Promise<
 }
 
 export const search = (q: string) => rpc<(ArchiveRow & { rank: number })[]>("gt_search", { p_q: q, p_limit: 50 });
-export const trending = (n = 20, revalidate = 60) => rpc<(ArchiveRow & { score: number })[]>("gt_trending", { p_limit: n }, { revalidate });
+export async function trending(n = 20, revalidate = 60) {
+  const rows = await rpc<(ArchiveRow & { score: number })[]>("gt_trending", { p_limit: Math.min(Math.max(n * 2, n), 80) }, { revalidate });
+  if (!rows) return null;
+  return dedupeArchive(rows).sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, n);
+}
 export const vote = (item: string, voter: string) => rpc<{ ok: boolean; already?: boolean; votes?: number; error?: string }>("gt_vote", { p_item: item, p_voter: voter });
 
 /** Vote totals for the given ids (public read of gt_headlines). */

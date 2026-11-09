@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import { tagFor, isSensitive, SNARK_TAGS } from '../lib/tags.ts';
 import { makeLocator } from '../lib/places.ts';
 import { group } from '../lib/cluster.ts';
-import { buildClusters, inCategory, isBreaking, topStory } from '../lib/feeds.ts';
+import { buildClusters, dedupeItems, inCategory, isBreaking, topStory } from '../lib/feeds.ts';
+import { canonicalLink, canonicalTitle, dedupeArchive } from '../lib/dedupe.ts';
 import { INGEST_BATCH_LIMIT, archiveQueue, planIngest } from '../lib/db.ts';
 import { filterPosts, hasTweetList, INTERCEPT_QUERY, linkify, mergePosts, nextCursor, parseTweets } from '../lib/intercepts.ts';
 
@@ -267,4 +268,50 @@ test('clearance cutoffs: L1 1, L2 2–3, L3 4–6, L4 COSMIC 7+', () => {
   assert.equal(clr(0).lvl, 1);
   assert.equal(tipText(CLR_LEVELS[2]), 'L3 · TOP SECRET: 4–6 outlets reporting');
   assert.equal(tipText(CLR_LEVELS[3]), 'L4 · COSMIC: 7+ outlets reporting');
+});
+
+test('dedupe copies before ranking, and leaves different headlines alone', () => {
+  const fixture = JSON.parse(fs.readFileSync(new URL('./fixtures/dedupe-stories.json', import.meta.url)));
+  const src = (name, category = 'politics') => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, ''), name, url: 'https://example.com/rss', home: 'https://example.com', category, lean: 'Center' });
+  const story = (row, category) => ({ title: row.title, link: row.link, snippet: '', ts: row.ts, image: row.image ?? null, source: src(row.source, category), place: null, geo: null, guid: row.guid });
+  const now = Date.parse('2026-11-09T23:00:00Z');
+  assert.equal(canonicalLink(fixture.utm[0].link), 'https://thebulwark.com/p/trump-ufc');
+  assert.equal(canonicalLink(fixture.utm[1].link), canonicalLink(fixture.utm[0].link));
+  assert.equal(canonicalTitle(fixture.entities[0].title), canonicalTitle(fixture.entities[1].title));
+  const utm = buildClusters(fixture.utm.map((row) => story(row)), now);
+  assert.equal(utm.length, 1);
+  assert.equal(utm[0].lead.ts, 1000);
+  assert.equal(utm[0].lead.link, fixture.utm[1].link);
+  assert.equal(utm[0].image, 'https://cdn.example/bulwark.jpg');
+  const feeds = buildClusters(fixture.twoFeeds.map((row) => story(row)), now);
+  assert.equal(feeds.length, 1);
+  assert.equal(feeds[0].lead.ts, 4000);
+  assert.equal(feeds[0].image, 'https://cdn.example/senate.jpg');
+  const entities = buildClusters(fixture.entities.map((row) => story(row)), now);
+  assert.equal(entities.length, 1);
+  assert.equal(entities[0].lead.title, "Trump's Border Memo Leaks Early");
+  assert.equal(entities[0].image, 'https://cdn.example/memo.jpg');
+  const distinct = buildClusters(fixture.distinct.map((row) => story(row)), now);
+  assert.equal(distinct.length, 2);
+  assert.deepEqual(distinct.map((cluster) => cluster.lead.source.name).sort(), ['CNA', 'The Guardian']);
+  const byGuid = dedupeItems(fixture.guid.map((row) => story(row)));
+  assert.equal(byGuid.length, 1);
+  assert.equal(byGuid[0].ts, 1500);
+  const satireTitle = 'A joke headline that matches the wire exactly';
+  const mixed = buildClusters([
+    story({ title: satireTitle, link: 'https://example.com/news', ts: 100, source: 'NPR' }),
+    story({ title: satireTitle, link: 'https://example.com/joke', ts: 90, source: 'The Babylon Bee' }, 'satire'),
+  ], now);
+  assert.equal(mixed.length, 2);
+  assert.equal(mixed.filter((cluster) => cluster.satire).length, 1);
+  const rows = dedupeArchive([
+    { id: 'a', title: fixture.utm[0].title, link: fixture.utm[0].link, source: 'The Bulwark', category: 'politics', image: null, published_at: '2026-11-09T22:00:00Z', outlets: 1, breaking: false, votes: 2, score: 4 },
+    { id: 'b', title: fixture.utm[0].title, link: fixture.utm[1].link, source: 'The Bulwark', category: 'politics', image: 'https://cdn.example/bulwark.jpg', published_at: '2026-11-09T22:11:00Z', outlets: 1, breaking: true, votes: 3, score: 5 },
+  ]);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].id, 'a');
+  assert.equal(rows[0].votes, 5);
+  assert.equal(rows[0].score, 9);
+  assert.equal(rows[0].breaking, true);
+  assert.equal(rows[0].image, 'https://cdn.example/bulwark.jpg');
 });

@@ -6,10 +6,16 @@ import Thumb from "./Thumb";
 import { canHotlink } from "@/lib/hotlink";
 
 export default function TrendingList({ rows, now, compact = false, testid = "trending" }: { rows: (ArchiveRow & { score?: number; rank?: number })[]; now: number; compact?: boolean; testid?: string }) {
-  if (!rows.length) return <p className="px-4 py-6 font-mono text-sm text-zinc-500" data-testid={`${testid}-empty`}>No signal yet. Check back after the next sweep.</p>;
+  const seen = new Set<string>();
+  const unique = rows.filter((row) => {
+    if (!row.id || seen.has(row.id)) return false;
+    seen.add(row.id);
+    return true;
+  });
+  if (!unique.length) return <p className="px-4 py-6 font-mono text-sm text-zinc-500" data-testid={`${testid}-empty`}>No signal yet. Check back after the next sweep.</p>;
   return (
     <ol className="divide-y divide-zinc-800/80 px-4" data-testid={testid}>
-      {rows.map((r, i) => (
+      {unique.map((r, i) => (
         <li key={r.id} className="flex gap-3 py-2.5" data-testid={`${testid}-item`}>
           <span className="mt-0.5 shrink-0 font-mono text-[11px] text-amber-400/80" aria-hidden="true">#{i + 1}</span>
           <div className="min-w-0 flex-1">
