@@ -1,0 +1,5 @@
+{
+  "_readme": "Paste public X post URLs into \"posts\" to pin them on the home page, e.g. {\"url\": \"https://x.com/someaccount/status/1234567890123456789\", \"note\": \"optional label\"}. Embeds stay click-to-load. The \"_example\" entry is never shown.",
+  "_example": { "url": "https://x.com/ExampleAccount/status/1234567890123456789", "note": "EXAMPLE ONLY — not rendered" },
+  "posts": []
+}

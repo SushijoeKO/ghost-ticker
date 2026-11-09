@@ -1,0 +1,9 @@
+node_modules
+.next
+shots
+tests/node_modules
+.env*
+.cron-secret
+.vercel
+tsconfig.tsbuildinfo
+deploy-refs*.json

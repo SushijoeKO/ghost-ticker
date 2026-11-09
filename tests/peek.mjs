@@ -1,0 +1,10 @@
+import { chromium, devices } from 'playwright';
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 900 } });
+await p.goto('http://localhost:3100/', { waitUntil: 'networkidle' });
+await p.screenshot({ path: '/tmp/peek-desk.png' });
+await p.screenshot({ path: '/tmp/peek-desk-full.png', fullPage: true });
+const m = await b.newPage({ ...devices['iPhone 13'] });
+await m.goto('http://localhost:3100/', { waitUntil: 'networkidle' });
+await m.screenshot({ path: '/tmp/peek-mob.png' });
+await b.close();
