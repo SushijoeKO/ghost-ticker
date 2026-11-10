@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { getWireWithImages } from "@/lib/wire-cache";
 import { ingest } from "@/lib/db";
 
-// Schedule is vercel.json → crons[0].schedule, currently every 15 minutes ("*/15 * * * *").
-// Vercel Hobby only allows one cron a day. On Hobby, change that schedule to "0 12 * * *" (12:00 UTC).
+// Vercel: vercel.json crons, daily at 12:00 UTC ("0 12 * * *").
+// Cloudflare: wrangler.jsonc triggers.crons, same schedule. The Worker scheduled() handler calls this route with CRON_SECRET.
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 

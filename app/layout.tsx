@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import Footer from "@/components/Footer";
 import ConsentBanner from "@/components/ConsentBanner";
@@ -21,6 +20,13 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#05070a", width: "device-width", initialScale: 1 };
 
+/** Cloudflare Web Analytics beacon. Cookie-free; omitted until a public site token is set. */
+function CloudflareBeacon() {
+  const token = process.env.CF_WEB_ANALYTICS_TOKEN?.trim() ?? "";
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(token)) return null;
+  return <script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon={`{"token":"${token}"}`} />;
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="crt" suppressHydrationWarning>
@@ -38,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ConsentBanner />
         <FxRoot />
         <ClearanceTip />
-        <Analytics />
+        <CloudflareBeacon />
       </body>
     </html>
   );

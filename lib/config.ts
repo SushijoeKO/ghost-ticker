@@ -3,10 +3,20 @@
 // Set false to put the site back behind noindex and Disallow: /.
 export const LAUNCHED = true;
 
+function siteUrl(): string {
+  // Bracket access so the bundler does not bake the value in at build time.
+  const key = ["SITE", "URL"].join("_");
+  const raw = process.env[key]?.trim();
+  if (!raw) return "https://ghost-ticker.vercel.app";
+  return raw.replace(/\/$/, "");
+}
+
 export const SITE = {
   name: "Ghost Ticker",
   tagline: "Intercepted headlines. Declassified every five minutes.",
-  url: "https://ghost-ticker.vercel.app",
+  get url() {
+    return siteUrl();
+  },
   operator: "SushijoeKO",
   contact: "sushijoe6@gmail.com",
   year: 2026,
