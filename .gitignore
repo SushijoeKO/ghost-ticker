@@ -5,5 +5,9 @@ tests/node_modules
 .env*
 .cron-secret
 .vercel
+.open-next
+.wrangler
+.dev.vars
+.dev.vars.*
 tsconfig.tsbuildinfo
 deploy-refs*.json

@@ -12,11 +12,11 @@ export default function Privacy() {
       <h2>What we collect</h2>
       <ul>
         <li>No accounts, no sign-up, no comments. We do not ask for your name, email or any personal details.</li>
-        <li>We use Vercel Web Analytics, which counts anonymized page views without cookies or cross-site identifiers. See <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">Vercel's privacy policy</a>.</li>
+        <li>We do not use cookies or cross-site tracking. When Cloudflare Web Analytics is turned on, it counts page views without cookies or cross-site identifiers. See <a href="https://www.cloudflare.com/web-analytics/" target="_blank" rel="noopener noreferrer">Cloudflare Web Analytics</a>.</li>
         <li>Your privacy choice, display settings (CRT effect, sound alerts) and the list of stories you upvoted are saved only in your own browser (local storage).</li>
         <li><strong>Upvotes:</strong> the first time you upvote, your browser makes a random anonymous ID (a UUID, not linked to your name, email, IP address or device) and keeps it in local storage. When you vote, that ID and the story ID are stored in our database (hosted by Supabase) so each browser counts once per story and to limit abuse (for example, a few votes per minute). Votes are kept with the story for about 7 days and then deleted. Clearing your browser storage removes the ID from your device.</li>
         <li><strong>Search:</strong> search terms are sent to our server to query the headline archive; we don’t store them in our database.</li>
-        <li>Our host, Vercel, processes standard technical data (such as IP address and browser type) in server logs to deliver and secure the site. See Vercel’s privacy policy.</li>
+        <li>Our host, Cloudflare, processes standard technical data (such as IP address and browser type) in server logs to deliver and secure the site. See <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare’s privacy policy</a>.</li>
       </ul>
       <h2>Images, videos and posts from other sites</h2>
       <p>Story photos are shown straight from each publisher’s own servers (as listed in their public feeds), and video thumbnails come from YouTube’s image server (i.ytimg.com). Loading them lets those servers see your IP address and browser type; we send them no referrer.</p>

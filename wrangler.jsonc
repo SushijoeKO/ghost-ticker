@@ -1,0 +1,53 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ghost-ticker",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-11-10",
+  "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  // Public origin for canonical URLs, sitemap, and robots. Not a secret.
+  // Replace this with https://ghost-ticker.<account>.workers.dev and pass the same
+  // value as SITE_URL when running preview or deploy, so prerendered pages match.
+  "vars": {
+    "SITE_URL": "https://ghost-ticker.workers.dev"
+  },
+  "triggers": {
+    "crons": ["0 12 * * *"]
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "ghost-ticker"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "NEXT_INC_CACHE_R2_BUCKET",
+      "bucket_name": "ghost-ticker-cache"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "NEXT_CACHE_DO_QUEUE",
+        "class_name": "DOQueueHandler"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["DOQueueHandler"]
+    }
+  ]
+  // Secrets (names only; set with `npx wrangler secret put <NAME>`, never commit values):
+  // TWITTERAPI_IO_KEY, CRON_SECRET, GT_INGEST_KEY, SUPABASE_URL, SUPABASE_ANON_KEY
+  // Optional public var, not a secret: CF_WEB_ANALYTICS_TOKEN
+}

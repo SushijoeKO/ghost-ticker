@@ -6,7 +6,8 @@
 // </head>, and never written to the data cache; identical lookups running in parallel share one request.
 import http from "node:http";
 import https from "node:https";
-const UA = "GhostTicker/1.0 (headline aggregator; preview image lookup; +https://ghost-ticker.vercel.app/about)";
+import { SITE } from "./config.ts";
+const UA = `GhostTicker/1.0 (headline aggregator; preview image lookup; +${SITE.url}/about)`;
 const PAGE_TIMEOUT = 3500;
 const IMG_TIMEOUT = 3000;
 const MAX_HTML = 256 * 1024;
