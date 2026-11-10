@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getWire } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
 
 export const revalidate = 60;
 

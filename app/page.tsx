@@ -11,8 +11,9 @@ import VideoStrip from "@/components/VideoStrip";
 import XEmbeds from "@/components/XEmbeds";
 import XFeed from "@/components/XFeed";
 import TrendingList from "@/components/TrendingList";
-import { balanceByLean, diversify, getWireWithImages as getWire, inCategory, pinsFrom, topStory, type Cluster } from "@/lib/feeds";
-import { ingest, trending, voteCounts } from "@/lib/db";
+import { balanceByLean, diversify, inCategory, pinsFrom, topStory, trendCards, type Cluster } from "@/lib/feeds";
+import { getWireWithImages as getWire } from "@/lib/wire-cache";
+import { ingest, saveStories, voteCounts } from "@/lib/db";
 import { getVideos } from "@/lib/videos";
 import { pinnedPosts } from "@/lib/pinned";
 import { SOFT } from "@/lib/sources";
@@ -27,7 +28,10 @@ export default async function Home() {
   const now = w.fetchedAt;
   // archive this sweep (server-side, secret key never leaves the server); failures are ignored
   await ingest(w.clusters).catch(() => null);
-  const [videos, trend] = await Promise.all([getVideos(12), trending(8, 60)]);
+  await saveStories(w.clusters).catch(() => null);
+  const hot = w.clusters.filter((c) => !c.satire).sort((a, b) => b.score - a.score).slice(0, 40);
+  const [videos, trendVotes] = await Promise.all([getVideos(12), voteCounts(hot.map((c) => c.id), 60)]);
+  const trend = trendCards(w.clusters, trendVotes, now, 8);
   const used = new Set<string>();
   const take = (arr: Cluster[], n: number, cap = 2) => {
     const out = diversify(arr, n, cap, used);
@@ -87,7 +91,7 @@ export default async function Home() {
                 <h2 id="h-trending" className="flex items-center gap-2 font-mono text-sm font-bold uppercase tracking-[0.18em] text-zinc-100"><span className="inline-block h-3 w-1.5 bg-amber-400" aria-hidden="true" />Trending<span className="text-[10px] font-normal tracking-[0.25em] text-zinc-500">/HEAT</span></h2>
                 <Link href="/trending" className="font-mono text-[11px] uppercase tracking-wider text-emerald-400 hover:underline">Full list →</Link>
               </header>
-              <TrendingList rows={(trend ?? []).filter((r) => r.category !== "satire")} now={now} compact />
+              <TrendingList rows={trend} now={now} compact />
             </section>
             <Section id="latest" title="Latest wire" code="PRIORITY" items={latest} now={now} more="/c/top" votes={votes} leadCard={false} />
             <AdSlot kind="sidebar" />

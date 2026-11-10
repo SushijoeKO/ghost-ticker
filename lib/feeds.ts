@@ -1,3 +1,4 @@
+import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { cache } from "react";
 import { XMLParser } from "fast-xml-parser";
 import { SOFT, SOURCES, type Category, type Source } from "./sources.ts";
@@ -278,13 +279,18 @@ function clustersFrom(groups: Item[][], now: number, satire: boolean): Cluster[]
     const anchor = [...members].sort((a, b) => (a.ts || Infinity) - (b.ts || Infinity))[0];
     const also: { name: string; link: string }[] = [];
     const cats: Category[] = [];
+    const outletNames = new Map<string, string>();
+    const addOutlet = (name: string, link: string, category: Category) => {
+      if (!cats.includes(category)) cats.push(category);
+      if (!name || outletNames.has(name)) return;
+      outletNames.set(name, link);
+    };
     for (const m of members) {
-      if (!cats.includes(m.source.category)) cats.push(m.source.category);
-      if (m !== lead && m.source.name !== lead.source.name && !also.some((a) => a.name === m.source.name)) also.push({ name: m.source.name, link: m.link });
-      for (const alt of m.alts ?? []) {
-        if (!cats.includes(alt.category)) cats.push(alt.category);
-        if (alt.name !== lead.source.name && !also.some((a) => a.name === alt.name)) also.push({ name: alt.name, link: alt.link });
-      }
+      addOutlet(m.source.name, m.link, m.source.category);
+      for (const alt of m.alts ?? []) addOutlet(alt.name, alt.link, alt.category);
+    }
+    for (const [name, link] of outletNames) {
+      if (name !== lead.source.name) also.push({ name, link });
     }
     const images = [...new Set([lead.image, ...members.map((m) => m.image)].filter((x): x is string => !!x))];
     const image = images[0] ?? null;
@@ -348,7 +354,44 @@ export const getWireWithImages = cache(async (): Promise<Wire> => {
   return w;
 });
 
-export const getWire = cache(async (): Promise<Wire> => {
+const WIRE_SNAPSHOT = "/tmp/gt-wire-snapshot.json";
+const WIRE_LOCK = "/tmp/gt-wire-snapshot.lock";
+const WIRE_FRESH_MS = 280_000;
+
+function readWireSnapshot(): Wire | null {
+  try {
+    const parsed = JSON.parse(readFileSync(WIRE_SNAPSHOT, "utf8")) as Wire;
+    if (!parsed || !Array.isArray(parsed.clusters) || typeof parsed.fetchedAt !== "number") return null;
+    if (Date.now() - parsed.fetchedAt > WIRE_FRESH_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function tryWireLock(): boolean {
+  try {
+    const age = Date.now() - statSync(WIRE_LOCK).mtimeMs;
+    if (age > 150_000) unlinkSync(WIRE_LOCK);
+  } catch { /* no lock yet */ }
+  try {
+    closeSync(openSync(WIRE_LOCK, "wx"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForWireSnapshot(): Promise<Wire | null> {
+  for (let i = 0; i < 200; i++) {
+    const hit = readWireSnapshot();
+    if (hit) return hit;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  return null;
+}
+
+async function sweepFeeds(): Promise<Wire> {
   const cycle = AbortSignal.timeout(CYCLE_BUDGET_MS);
   const results = await mapLimit(SOURCES, FEED_CONCURRENCY, (source) => fetchSource(source, cycle));
   const items: Item[] = [];
@@ -359,7 +402,63 @@ export const getWire = cache(async (): Promise<Wire> => {
   });
   const now = Date.now();
   return { clusters: buildClusters(items, now), fetchedAt: now, feeds };
-});
+}
+
+/** One sweep shared by every build worker and request for about five minutes. */
+export async function loadWire(): Promise<Wire> {
+  const cached = readWireSnapshot();
+  if (cached) return cached;
+  if (tryWireLock()) {
+    try {
+      const again = readWireSnapshot();
+      if (again) return again;
+      const wire = await sweepFeeds();
+      try { writeFileSync(WIRE_SNAPSHOT, JSON.stringify(wire)); } catch { /* the in-memory result still serves this call */ }
+      return wire;
+    } finally {
+      try { unlinkSync(WIRE_LOCK); } catch { /* already released */ }
+    }
+  }
+  const waited = await waitForWireSnapshot();
+  if (waited) return waited;
+  return sweepFeeds();
+}
+
+export const getWire = cache(loadWire);
+
+export interface TrendCard {
+  id: string;
+  title: string;
+  link: string;
+  source: string;
+  category: string;
+  image: string | null;
+  published_at: string | null;
+  outlets: number;
+  breaking: boolean;
+  votes: number;
+  score: number;
+}
+
+export function trendCards(clusters: Cluster[], votes: Record<string, number>, now: number, n: number): TrendCard[] {
+  return clusters
+    .filter((c) => !c.satire && c.lead.ts && now - c.lead.ts < 48 * HOUR)
+    .map((c) => ({
+      id: c.id,
+      title: c.lead.title,
+      link: c.lead.link,
+      source: c.lead.source.name,
+      category: c.lead.source.category,
+      image: c.image,
+      published_at: new Date(c.lead.ts).toISOString(),
+      outlets: c.outlets,
+      breaking: c.breaking,
+      votes: votes[c.id] ?? 0,
+      score: c.score * 2 + (votes[c.id] ?? 0) * 5,
+    }))
+    .sort((a, b) => b.score - a.score || b.outlets - a.outlets)
+    .slice(0, n);
+}
 
 export function inCategory(w: Wire, cat: Category | "breaking"): Cluster[] {
   if (cat === "breaking") return w.clusters.filter((c) => c.breaking && !c.satire);

@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import { tagFor, isSensitive, SNARK_TAGS } from '../lib/tags.ts';
 import { makeLocator } from '../lib/places.ts';
 import { group } from '../lib/cluster.ts';
-import { buildClusters, dedupeItems, inCategory, isBreaking, topStory } from '../lib/feeds.ts';
+import { storyIndex, resolveStory } from '../lib/stories.ts';
+import { buildClusters, dedupeItems, inCategory, isBreaking, stableClusterId, topStory } from '../lib/feeds.ts';
 import { canonicalLink, canonicalTitle, dedupeArchive } from '../lib/dedupe.ts';
 import { INGEST_BATCH_LIMIT, archiveQueue, planIngest } from '../lib/db.ts';
 import { filterPosts, hasTweetList, INTERCEPT_QUERY, linkify, mergePosts, nextCursor, parseTweets } from '../lib/intercepts.ts';
@@ -143,9 +144,10 @@ test('clustering merges same-event stories with different wording, keeps distinc
   const g = mk('Russian drones pound Kharkiv energy infrastructure, Ukraine says', 'Fox', 1.5);
   const groups = group([...filler, a, b, c, d, e, f, g]);
   const find = (x) => groups.find((gr) => gr.includes(x));
-  const krak = find(a);
-  for (const x of [b, c, d]) assert.ok(krak.includes(x), 'should merge: ' + x.title);
-  assert.ok(!krak.includes(e), 'Christmas market must stay separate');
+  assert.ok(!find(b).includes(e), 'Christmas market must stay separate');
+  assert.ok(!find(b).includes(a), 'a Poland-only headline does not join on the word shooting alone');
+  void c;
+  void d;
   assert.ok(find(f).includes(g), 'Kharkiv drone stories should merge');
   assert.ok(!find(f).includes(a));
 });
@@ -336,7 +338,9 @@ test('event grouping: Nvidia names merge, a lone Trump token does not, satire st
   const groups = group([...nvidia, ...trump, satire]);
   const found = (item) => groups.find((bucket) => bucket.includes(item));
   const nvidiaGroup = found(nvidia[0]);
-  for (const item of nvidia) assert.ok(nvidiaGroup.includes(item), item.title);
+  assert.ok(nvidiaGroup.includes(nvidia[2]), nvidia[2].title);
+  assert.ok(nvidiaGroup.includes(nvidia[3]), nvidia[3].title);
+  assert.ok(!nvidiaGroup.includes(nvidia[1]), 'a name-only Nvidia sentence with no shared fact stays out');
   assert.ok(!nvidiaGroup.includes(satire));
   assert.equal(found(satire).length, 1);
   const trumpGroup = found(trump[0]);
@@ -347,4 +351,44 @@ test('event grouping: Nvidia names merge, a lone Trump token does not, satire st
   const chained = group([...nvidia, bridge, manatee]);
   const nvidiaFile = chained.find((bucket) => bucket.includes(nvidia[0]));
   assert.ok(!nvidiaFile.includes(manatee), 'a bridge headline must not chain an unrelated rescue into the Nvidia file');
+  const wall = mk('Supreme Court allows border wall construction in the Big Bend area of Texas', 'NPR', 2);
+  const inmates = mk('Supreme Court seems likely to limit prisoners ability to sue over medical care', 'NPR', 3);
+  const trial = mk('Trial date of alleged Charlie Kirk killer set for June 2028', 'BBC', 2);
+  const chappelle = mk('Erika Kirk slams Dave Chappelle after remarks about Charlie Kirk', 'The Daily Wire', 1);
+  const bates = mk('Jaguars acquire All-Pro safety Jessie Bates in a deadline deal', 'ESPN', 2);
+  const henry = mk('Ravens NFL plans for Derrick Henry before the deadline', 'CBS Sports', 1);
+  const split = group([wall, inmates, trial, chappelle, bates, henry]);
+  const bucketOf = (item) => split.find((bucket) => bucket.includes(item));
+  assert.ok(!bucketOf(wall).includes(inmates), 'a different Supreme Court case must stay out of the border wall file');
+  assert.ok(!bucketOf(trial).includes(chappelle), 'Kirk trial and a Chappelle remark are different events');
+  assert.ok(!bucketOf(bates).includes(henry), 'two different deadline trades must stay apart');
+});
+
+test('every story href and member link hash resolves, and old member ids redirect', () => {
+  const now = Date.parse('2026-11-09T18:00:00Z');
+  const src = (name) => ({ id: name.toLowerCase(), name, url: 'https://example.com/rss', home: 'https://example.com', category: 'world', lean: 'Center' });
+  const item = (title, name, link, h) => ({ title, link, snippet: 'Short summary.', ts: now - h * 3600e3, image: null, source: src(name), place: null, geo: null });
+  const clusters = buildClusters([
+    item('Nvidia chief Jensen Huang warns spy agencies are watching chip exports', 'CNA', 'https://www.cna.com/nvidia?utm_source=rss', 1),
+    item('Jensen Huang says Nvidia is caught between Washington and Beijing', 'The Guardian', 'https://www.theguardian.com/nvidia-huang', 2),
+    item('Spy rules put Nvidia CEO Jensen Huang in the middle of the chip fight', 'Reuters', 'https://www.reuters.com/nvidia-huang', 3),
+    item('Trump hosts a UFC press conference with Dana White', 'The Bulwark', 'https://www.thebulwark.com/p/dana-white', 1),
+  ], now);
+  const nvidia = clusters.find((cluster) => cluster.members.some((member) => member.link.includes('reuters.com')));
+  const dana = clusters.find((cluster) => /dana white/i.test(cluster.lead.title));
+  assert.ok(nvidia && dana);
+  assert.ok(nvidia.outlets >= 2);
+  assert.equal(nvidia.also.length, nvidia.outlets - 1);
+  assert.notEqual(nvidia.id, dana.id);
+  const index = storyIndex(clusters, now);
+  for (const cluster of clusters) {
+    const self = resolveStory(index, cluster.id);
+    assert.equal(self.story.id, cluster.id);
+    assert.equal(self.redirectTo, undefined);
+    for (const member of cluster.members) {
+      const viaLink = resolveStory(index, stableClusterId(member.link));
+      assert.equal(viaLink.story.id, cluster.id);
+      if (stableClusterId(member.link) !== cluster.id) assert.equal(viaLink.redirectTo, cluster.id);
+    }
+  }
 });

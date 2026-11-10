@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Doc from "@/components/Doc";
 import { SOURCES, CATEGORIES } from "@/lib/sources";
-import { getWire } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
 import { VIDEO_CHANNELS } from "@/lib/videos";
 import { SITE } from "@/lib/config";
 import { LEVELS } from "@/lib/clearance";

@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { SITE } from "@/lib/config";
 import { CATEGORIES } from "@/lib/sources";
-import { getWire } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
 
 export const revalidate = 300;
 

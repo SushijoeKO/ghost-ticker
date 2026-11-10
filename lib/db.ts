@@ -4,6 +4,7 @@
 import { stableClusterId, type Cluster } from "./feeds.ts";
 import { group } from "./cluster.ts";
 import { dedupeArchive } from "./dedupe.ts";
+import type { StoryFile } from "./stories.ts";
 
 const URL_ = process.env.SUPABASE_URL;
 const KEY = process.env.SUPABASE_ANON_KEY;
@@ -159,6 +160,84 @@ export async function voteCounts(ids: string[], revalidate: number | null = 60):
   } catch {
     return {};
   }
+}
+
+export async function saveStories(clusters: Cluster[]): Promise<void> {
+  const key = process.env.GT_INGEST_KEY;
+  if (!key || !clusters.length) return;
+  const rows = clusters.slice(0, 800).map((cluster) => ({
+    id: cluster.id,
+    title: cluster.lead.title,
+    link: cluster.lead.link,
+    source: cluster.lead.source.name,
+    category: cluster.lead.source.category,
+    image: cluster.image ?? "",
+    ts: cluster.lead.ts ? new Date(cluster.lead.ts).toISOString() : "",
+    outlets: cluster.outlets,
+    breaking: cluster.breaking,
+    snippet: (cluster.lead.snippet || "").slice(0, 160),
+    members: cluster.members.slice(0, 30).map((member) => ({
+      title: member.title, link: member.link, snippet: (member.snippet || "").slice(0, 160), ts: member.ts, source: member.source,
+    })),
+    aliases: [...new Set([cluster.id, ...cluster.members.map((member) => stableClusterId(member.link))].filter((alias) => /^[a-z0-9]{4,16}$/.test(alias)))],
+  }));
+  for (let i = 0; i < rows.length; i += 100) {
+    await rpc<number>("gt_save_stories", { p_key: key, p_rows: rows.slice(i, i + 100) }, { timeout: 10000 });
+  }
+}
+
+function storyFromArchive(row: ArchiveRow & { snippet?: string | null; members?: StoryFile["members"] }): StoryFile {
+  const ts = row.published_at ? Date.parse(row.published_at) || 0 : 0;
+  const members = row.members?.length ? row.members : [{ title: row.title, link: row.link, snippet: row.snippet || "", ts, source: row.source }];
+  return {
+    id: row.id, title: row.title, link: row.link, source: row.source, category: row.category, image: row.image,
+    ts, snippet: (row.snippet || "").slice(0, 160), outlets: row.outlets, breaking: row.breaking,
+    satire: row.category === "satire", tag: null, members,
+  };
+}
+
+/** Resolve a stored cluster, a member link-hash, or a headline id. Null when the archive has never seen it. */
+export async function lookupArchivedStory(id: string): Promise<{ story: StoryFile; redirectTo?: string } | null> {
+  if (!URL_ || !KEY || !/^[a-z0-9]{4,16}$/.test(id)) return null;
+  try {
+    const headers = { apikey: KEY };
+    const aliasRes = await fetch(`${URL_}/rest/v1/gt_story_alias?select=cluster_id&alias=eq.${id}`, {
+      headers, next: { revalidate: 300 }, signal: AbortSignal.timeout(4000),
+    });
+    if (aliasRes.ok) {
+      const alias = (await aliasRes.json()) as { cluster_id: string }[];
+      const clusterId = alias[0]?.cluster_id;
+      if (clusterId && clusterId !== id) {
+        const story = await readStoredStory(clusterId);
+        if (story) return { story, redirectTo: clusterId };
+      }
+      if (clusterId) {
+        const story = await readStoredStory(clusterId);
+        if (story) return { story };
+      }
+    }
+    const own = await readStoredStory(id);
+    if (own) return { story: own };
+    const headRes = await fetch(`${URL_}/rest/v1/gt_headlines?select=id,title,link,source,category,image,published_at,outlets,breaking,votes&id=eq.${id}`, {
+      headers, next: { revalidate: 300 }, signal: AbortSignal.timeout(4000),
+    });
+    if (!headRes.ok) return null;
+    const heads = (await headRes.json()) as ArchiveRow[];
+    if (!heads[0]) return null;
+    return { story: storyFromArchive(heads[0]) };
+  } catch {
+    return null;
+  }
+}
+
+async function readStoredStory(id: string): Promise<StoryFile | null> {
+  if (!URL_ || !KEY) return null;
+  const res = await fetch(`${URL_}/rest/v1/gt_stories?select=id,title,link,source,category,image,published_at,outlets,breaking,snippet,members&id=eq.${id}`, {
+    headers: { apikey: KEY }, next: { revalidate: 300 }, signal: AbortSignal.timeout(4000),
+  });
+  if (!res.ok) return null;
+  const rows = (await res.json()) as (ArchiveRow & { snippet?: string | null; members?: StoryFile["members"] })[];
+  return rows[0] ? storyFromArchive(rows[0]) : null;
 }
 
 /** Previously discovered images for these ids (archive acts as the og:image cache). */

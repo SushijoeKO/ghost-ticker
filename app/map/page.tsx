@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Header from "@/components/Header";
 import MapView from "@/components/MapView";
-import { getWire, pinsFrom } from "@/lib/feeds";
+import { pinsFrom } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
 
 export const revalidate = 300;
 export const metadata: Metadata = { title: "Live map", description: "Where today’s headlines are happening, pinned on a world map.", alternates: { canonical: "/map" } };

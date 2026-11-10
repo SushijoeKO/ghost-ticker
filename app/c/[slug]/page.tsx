@@ -5,7 +5,8 @@ import Ticker from "@/components/Ticker";
 import Section from "@/components/Section";
 import AdSlot from "@/components/AdSlot";
 import { CATEGORIES } from "@/lib/sources";
-import { balanceByLean, diversify, getWireWithImages as getWire, inCategory } from "@/lib/feeds";
+import { balanceByLean, diversify, inCategory } from "@/lib/feeds";
+import { getWireWithImages as getWire } from "@/lib/wire-cache";
 
 export const revalidate = 300;
 export const dynamicParams = false;

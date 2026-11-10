@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
 import Header from "@/components/Header";
 import TrendingList from "@/components/TrendingList";
-import { trending } from "@/lib/db";
+import { trendCards } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
+import { voteCounts } from "@/lib/db";
 
-export const revalidate = 60;
+export const revalidate = 300;
 export const metadata: Metadata = { title: "Trending", description: "What readers are upvoting, weighted by how many outlets carry it and how fresh it is.", alternates: { canonical: "/trending" } };
 
 export default async function TrendingPage() {
-  const rows = ((await trending(30, 60)) ?? []).filter((r) => r.category !== "satire");
-  const now = Date.now();
+  const w = await getWire();
+  const pool = w.clusters.filter((c) => !c.satire && c.lead.ts && w.fetchedAt - c.lead.ts < 48 * 3600e3).sort((a, b) => b.score - a.score).slice(0, 60);
+  const votes = await voteCounts(pool.map((c) => c.id), 60);
+  const rows = trendCards(pool, votes, w.fetchedAt, 30);
   return (
     <>
       <Header active="trending" />
@@ -16,9 +20,9 @@ export default async function TrendingPage() {
         <div>
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-amber-400">Channel /HEAT</p>
           <h1 className="mt-1 font-mono text-3xl font-black uppercase tracking-[0.1em] text-zinc-50">Trending</h1>
-          <p className="mt-1 text-zinc-400">Ranked by anonymous upvotes, how many outlets carry the story, and how recent it is (last 48 hours). Counts refresh about every minute.</p>
+          <p className="mt-1 text-zinc-400">One card per event. Ranked by anonymous upvotes, how many outlets carry it, and how recent it is (last 48 hours).</p>
         </div>
-        <section className="panel" aria-label="Trending headlines" data-testid="section-trending"><TrendingList rows={rows} now={now} /></section>
+        <section className="panel" aria-label="Trending headlines" data-testid="section-trending"><TrendingList rows={rows} now={w.fetchedAt} /></section>
       </main>
     </>
   );

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getWireWithImages } from "@/lib/feeds";
+import { getWireWithImages } from "@/lib/wire-cache";
 import { ingest } from "@/lib/db";
 
 // Schedule is vercel.json → crons[0].schedule, currently every 15 minutes ("*/15 * * * *").

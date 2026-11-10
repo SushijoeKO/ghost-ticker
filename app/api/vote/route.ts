@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ingest, vote, voteCounts } from "@/lib/db";
-import { getWire, hash } from "@/lib/feeds";
+import { hash } from "@/lib/feeds";
+import { getWire } from "@/lib/wire-cache";
 
 export const dynamic = "force-dynamic";
 const ID = /^[a-z0-9]{4,16}$/;
