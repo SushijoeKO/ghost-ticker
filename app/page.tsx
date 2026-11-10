@@ -11,7 +11,7 @@ import VideoStrip from "@/components/VideoStrip";
 import XEmbeds from "@/components/XEmbeds";
 import XFeed from "@/components/XFeed";
 import TrendingList from "@/components/TrendingList";
-import { balanceByLean, diversify, inCategory, pinsFrom, topStory, trendCards, type Cluster } from "@/lib/feeds";
+import { balanceByLean, diversify, dropEchoes, inCategory, pinsFrom, topStory, trendCards, type Cluster } from "@/lib/feeds";
 import { getWireWithImages as getWire } from "@/lib/wire-cache";
 import { ingest, saveStories, voteCounts } from "@/lib/db";
 import { getVideos } from "@/lib/videos";
@@ -33,19 +33,20 @@ export default async function Home() {
   const [videos, trendVotes] = await Promise.all([getVideos(12), voteCounts(hot.map((c) => c.id), 60)]);
   const trend = trendCards(w.clusters, trendVotes, now, 8);
   const used = new Set<string>();
+  const shown: Cluster[] = [];
   const take = (arr: Cluster[], n: number, cap = 2) => {
-    const out = diversify(arr, n, cap, used);
-    out.forEach((c) => used.add(c.id));
+    const out = diversify(arr, n, cap, used, shown);
+    out.forEach((c) => { used.add(c.id); shown.push(c); });
     return out;
   };
 
   const top = topStory(w);
-  if (top) used.add(top.id);
-  const breakingAll = inCategory(w, "breaking");
-  const tickerItems = (breakingAll.length >= 6 ? breakingAll : [...breakingAll, ...w.clusters.filter((c) => !c.breaking && !c.categories.every((k) => SOFT.includes(k)))]).slice(0, 18);
+  if (top) { used.add(top.id); shown.push(top); }
+  const breakingAll = dropEchoes(inCategory(w, "breaking"), shown);
+  const tickerItems = dropEchoes(breakingAll.length >= 6 ? breakingAll : [...breakingAll, ...w.clusters.filter((c) => !c.breaking && !c.categories.every((k) => SOFT.includes(k)))]).slice(0, 18);
   const breaking = take(breakingAll, 8, 3);
-  const politics = balanceByLean(inCategory(w, "politics"), 16, 2, used);
-  politics.forEach((c) => used.add(c.id));
+  const politics = balanceByLean(inCategory(w, "politics"), 16, 2, used, shown);
+  politics.forEach((c) => { used.add(c.id); shown.push(c); });
   const weird = take(inCategory(w, "weird"), 12);
   const latest = take(w.clusters.filter((c) => c.categories.includes("top")), 12);
   const us = take(inCategory(w, "us"), 8);

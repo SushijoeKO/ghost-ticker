@@ -4,7 +4,7 @@ import { XMLParser } from "fast-xml-parser";
 import { SOFT, SOURCES, type Category, type Source } from "./sources.ts";
 import { REVALIDATE_SECONDS, SITE } from "./config.ts";
 import { locate } from "./locator.ts";
-import { group, tokens } from "./cluster.ts";
+import { group, leadsEcho, tokens } from "./cluster.ts";
 import { tagFor, type Tag } from "./tags.ts";
 import type { Place } from "./places.ts";
 import { canonicalLink, dedupeStories } from "./dedupe.ts";
@@ -441,23 +441,40 @@ export interface TrendCard {
 }
 
 export function trendCards(clusters: Cluster[], votes: Record<string, number>, now: number, n: number): TrendCard[] {
-  return clusters
+  const ranked = clusters
     .filter((c) => !c.satire && c.lead.ts && now - c.lead.ts < 48 * HOUR)
-    .map((c) => ({
-      id: c.id,
-      title: c.lead.title,
-      link: c.lead.link,
-      source: c.lead.source.name,
-      category: c.lead.source.category,
-      image: c.image,
-      published_at: new Date(c.lead.ts).toISOString(),
-      outlets: c.outlets,
-      breaking: c.breaking,
-      votes: votes[c.id] ?? 0,
-      score: c.score * 2 + (votes[c.id] ?? 0) * 5,
-    }))
-    .sort((a, b) => b.score - a.score || b.outlets - a.outlets)
-    .slice(0, n);
+    .sort((a, b) => (b.score * 2 + (votes[b.id] ?? 0) * 5) - (a.score * 2 + (votes[a.id] ?? 0) * 5) || b.outlets - a.outlets);
+  const shown: Cluster[] = [];
+  for (const cluster of ranked) {
+    if (shown.some((kept) => leadsEcho(kept.lead, cluster.lead))) continue;
+    shown.push(cluster);
+    if (shown.length >= n) break;
+  }
+  return shown.map((c) => ({
+    id: c.id,
+    title: c.lead.title,
+    link: c.lead.link,
+    source: c.lead.source.name,
+    category: c.lead.source.category,
+    image: c.image,
+    published_at: new Date(c.lead.ts).toISOString(),
+    outlets: c.outlets,
+    breaking: c.breaking,
+    votes: votes[c.id] ?? 0,
+    score: c.score * 2 + (votes[c.id] ?? 0) * 5,
+  }));
+}
+
+/** Drop a card whose lead is the same event as one already shown above it. */
+export function dropEchoes(list: Cluster[], prior: Cluster[] = []): Cluster[] {
+  const shown = [...prior];
+  const out: Cluster[] = [];
+  for (const cluster of list) {
+    if (shown.some((kept) => leadsEcho(kept.lead, cluster.lead))) continue;
+    out.push(cluster);
+    shown.push(cluster);
+  }
+  return out;
 }
 
 export function inCategory(w: Wire, cat: Category | "breaking"): Cluster[] {
@@ -495,12 +512,13 @@ export function topStory(w: Wire): Cluster | undefined {
   return pick(breaking) ?? pick(pool) ?? news[0];
 }
 
-export function diversify(arr: Cluster[], n: number, cap: number, skip: Set<string> = new Set()): Cluster[] {
+export function diversify(arr: Cluster[], n: number, cap: number, skip: Set<string> = new Set(), prior: Cluster[] = []): Cluster[] {
   const out: Cluster[] = [];
   const per = new Map<string, number>();
   const rest: Cluster[] = [];
+  const echoed = (c: Cluster) => prior.some((kept) => leadsEcho(kept.lead, c.lead)) || out.some((kept) => leadsEcho(kept.lead, c.lead));
   for (const c of arr) {
-    if (skip.has(c.id)) continue;
+    if (skip.has(c.id) || echoed(c)) continue;
     const k = c.lead.source.name;
     if ((per.get(k) ?? 0) < cap) {
       per.set(k, (per.get(k) ?? 0) + 1);
@@ -508,15 +526,21 @@ export function diversify(arr: Cluster[], n: number, cap: number, skip: Set<stri
       if (out.length >= n) break;
     } else rest.push(c);
   }
-  for (const c of rest) { if (out.length >= n) break; out.push(c); }
+  for (const c of rest) {
+    if (out.length >= n) break;
+    if (echoed(c)) continue;
+    out.push(c);
+  }
   const ids = new Set(out.map((c) => c.id));
   return arr.filter((c) => ids.has(c.id));
 }
 
 const bucketOf = (l: string) => (/Left/.test(l) ? "L" : /Right/.test(l) ? "R" : "C");
-export function balanceByLean(arr: Cluster[], n: number, cap: number, skip: Set<string> = new Set()): Cluster[] {
+export function balanceByLean(arr: Cluster[], n: number, cap: number, skip: Set<string> = new Set(), prior: Cluster[] = []): Cluster[] {
   const buckets: Record<string, Cluster[]> = { L: [], R: [], C: [] };
-  for (const c of arr) if (!skip.has(c.id)) buckets[bucketOf(c.lead.source.lean)].push(c);
+  const pickedClusters: Cluster[] = [];
+  const echoes = (c: Cluster) => prior.some((kept) => leadsEcho(kept.lead, c.lead)) || pickedClusters.some((kept) => leadsEcho(kept.lead, c.lead));
+  for (const c of arr) if (!skip.has(c.id) && !echoes(c)) buckets[bucketOf(c.lead.source.lean)].push(c);
   const per = new Map<string, number>();
   const picked = new Set<string>();
   const idx: Record<string, number> = { L: 0, R: 0, C: 0 };
@@ -529,9 +553,10 @@ export function balanceByLean(arr: Cluster[], n: number, cap: number, skip: Set<
       while (idx[k] < list.length) {
         const c = list[idx[k]++];
         const s = c.lead.source.name;
-        if ((per.get(s) ?? 0) >= cap) continue;
+        if ((per.get(s) ?? 0) >= cap || echoes(c)) continue;
         per.set(s, (per.get(s) ?? 0) + 1);
         picked.add(c.id);
+        pickedClusters.push(c);
         progress = true;
         break;
       }

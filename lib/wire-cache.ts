@@ -6,7 +6,7 @@ import { loadWire, type Wire } from "./feeds.ts";
 // The full wire is about 6 MB, over the data-cache limit, so the shared entry is gzipped.
 const loadWirePacked = unstable_cache(
   async () => gzipSync(JSON.stringify(await loadWire())).toString("base64"),
-  ["gt-wire-v5"],
+  ["gt-wire-v6"],
   { revalidate: 300 },
 );
 

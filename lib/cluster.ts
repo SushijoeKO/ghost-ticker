@@ -1,7 +1,7 @@
 // Story clustering: groups the same event across outlets even when worded differently.
 // Pure module (no imports) so it can be unit-tested with plain Node.
 
-export interface CItem { title: string; link: string; ts: number; source?: unknown; place?: string | null; placeLevel?: number; placeCountry?: string | null }
+export interface CItem { title: string; link: string; ts: number; snippet?: string; source?: unknown; place?: string | null; placeLevel?: number; placeCountry?: string | null }
 
 const ENTITY_SKIP = new Set(
   ("says said say after amid over into about with from that this they their just will new more most " +
@@ -46,7 +46,8 @@ const GENERIC = new Set(
    "supreme court scotus nfl trade deadline football monday grade grades odds prediction predictions pick picks " +
    "betting bet bets rumor rumors tracker fantasy draft game games " +
    "january february march april may june july august september october november december " +
-   "bulletin roundup digest headlines evening midday morning").split(" ")
+   "bulletin roundup digest headlines evening midday morning " +
+   "formula prix qualifying brazilian").split(" ")
 );
 
 // Places are not a second cast. A headline that adds two new people is a different event.
@@ -228,5 +229,215 @@ export function group<T extends CItem>(items: T[]): T[][] {
       buckets.push({ centroid: index, members: [index] });
     }
   }
-  return buckets.map((bucket) => bucket.members.map((index) => prepped[index].item));
+  return secondPass(buckets.map((bucket) => bucket.members.map((index) => prepped[index].item)));
+}
+
+// Names that show up in many unrelated stories. They never count as the two rare tokens that justify a merge.
+const FAMOUS = new Set(
+  ("trump biden harris obama putin zelensky netanyahu musk president donald joe america american " +
+   "china chinese russia russian iran israel ukraine gaza white house").split(" ")
+);
+
+const MERGE_COSINE = 0.66;
+const MERGE_COSINE_WITH_RARE = 0.48;
+const MERGE_RARE = 2;
+const MEMBER_FLOOR = 0.34;
+const MAX_MERGED = 160;
+
+function passTokens(text: string): string[] {
+  const out: string[] = [];
+  for (const raw of normalizeHeadline(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/['’]s\b/g, "").replace(/[^a-z0-9 -]+/g, " ").split(/\s+/)) {
+    const w = raw.replace(/^-+|-+$/g, "");
+    if (w.length < 3 || STOP.has(w) || /^\d+$/.test(w)) continue;
+    if (w === "scotus") { out.push("supreme", "court"); continue; }
+    out.push(stem(w));
+  }
+  return out;
+}
+
+function vecNorm(weights: Map<string, number>): number {
+  let sum = 0;
+  for (const value of weights.values()) sum += value * value;
+  return Math.sqrt(sum);
+}
+
+function cosine(a: Map<string, number>, b: Map<string, number>): number {
+  if (!a.size || !b.size) return 0;
+  let dot = 0;
+  const [small, large] = a.size <= b.size ? [a, b] : [b, a];
+  for (const [token, weight] of small) {
+    const other = large.get(token);
+    if (other) dot += weight * other;
+  }
+  const denom = vecNorm(a) * vecNorm(b);
+  return denom ? dot / denom : 0;
+}
+
+function averageVec(vecs: Map<string, number>[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const vec of vecs) for (const [token, weight] of vec) out.set(token, (out.get(token) ?? 0) + weight);
+  const n = vecs.length || 1;
+  for (const [token, weight] of out) out.set(token, weight / n);
+  return out;
+}
+
+/** Display backstop: two leads are the same event even if clustering left them apart. */
+export function leadsEcho(a: { title: string; snippet?: string }, b: { title: string; snippet?: string }): boolean {
+  const ta = [...new Set(passTokens(`${a.title} ${a.snippet ?? ""}`).filter((token) => !WEAK.has(token) && !FAMOUS.has(token)))];
+  const tb = [...new Set(passTokens(`${b.title} ${b.snippet ?? ""}`).filter((token) => !WEAK.has(token) && !FAMOUS.has(token)))];
+  if (ta.length < 2 || tb.length < 2) return false;
+  const sb = new Set(tb);
+  const shared = ta.filter((token) => sb.has(token));
+  if (shared.length >= 4) return true;
+  const va = new Map(ta.map((token) => [token, 1]));
+  const vb = new Map(tb.map((token) => [token, 1]));
+  return shared.length >= 3 && cosine(va, vb) >= 0.55;
+}
+
+/**
+ * Second pass: merge clusters whose centroids describe the same event.
+ * Centroid vectors are the mean TF-IDF of every member title and snippet.
+ * A merge is kept only when every member still sits close to the combined centroid.
+ */
+export function secondPass<T extends CItem>(groups: T[][]): T[][] {
+  if (groups.length < 2) return groups;
+  const docs = groups.map((members) => members.map((member) => passTokens(`${member.title} ${member.snippet ?? ""}`)));
+  const df = new Map<string, number>();
+  let pool = 0;
+  for (const doc of docs.flat()) {
+    pool++;
+    for (const token of new Set(doc)) df.set(token, (df.get(token) ?? 0) + 1);
+  }
+  const n = Math.max(pool, 1);
+  const idf = (token: string) => Math.log((n + 1) / ((df.get(token) ?? 0) + 0.5));
+  const rareCut = Math.log((n + 1) / (Math.max(6, n * 0.06) + 0.5));
+  const rareToken = (token: string) => token.length >= 3 && !WEAK.has(token) && !FAMOUS.has(token) && !(GENERIC.has(token) && token !== "supreme" && token !== "court") && idf(token) >= rareCut;
+
+  const weight = (tokens: string[]) => {
+    const tf = new Map<string, number>();
+    for (const token of tokens) tf.set(token, (tf.get(token) ?? 0) + 1);
+    const out = new Map<string, number>();
+    for (const [token, count] of tf) out.set(token, (1 + Math.log(count)) * idf(token));
+    return out;
+  };
+
+  const signatureOf = (memberDocs: string[][]) => {
+    const counts = new Map<string, number>();
+    for (const doc of memberDocs) for (const token of new Set(doc)) if (rareToken(token)) counts.set(token, (counts.get(token) ?? 0) + 1);
+    // A word has to show up across the file, not in a single aside, before it can pull another file in.
+    const need = memberDocs.length <= 2 ? 1 : Math.max(2, Math.ceil(memberDocs.length * 0.34));
+    const signature = new Set<string>();
+    for (const [token, count] of counts) if (count >= need) signature.add(token);
+    return signature;
+  };
+
+  interface Node<U extends CItem> { members: U[]; docs: string[][]; vecs: Map<string, number>[]; centroid: Map<string, number>; rare: Set<string>; ts: number }
+  const nodes: Node<T>[] = groups.map((members, index) => {
+    const vecs = docs[index].map(weight);
+    const times = members.map((member) => member.ts).filter((ts) => ts > 0).sort((a, b) => a - b);
+    return { members, docs: docs[index], vecs, centroid: averageVec(vecs), rare: signatureOf(docs[index]), ts: times.length ? times[Math.floor(times.length / 2)] : 0 };
+  });
+
+  const anchorKeys = (signature: Set<string>) => {
+    const tokens = [...signature].filter((token) => token.length >= 4).sort();
+    const keys: string[] = [];
+    for (let i = 0; i < tokens.length; i++) {
+      for (let j = i + 1; j < tokens.length && j < i + 5; j++) keys.push(`${tokens[i]}+${tokens[j]}`);
+    }
+    return keys.slice(0, 20);
+  };
+
+  const postings = new Map<string, number[]>();
+  nodes.forEach((node, index) => {
+    for (const token of node.rare) {
+      const list = postings.get(token);
+      if (list) list.push(index);
+      else postings.set(token, [index]);
+    }
+    for (const key of anchorKeys(node.rare)) {
+      const list = postings.get(key);
+      if (list) list.push(index);
+      else postings.set(key, [index]);
+    }
+  });
+
+  const seen = new Set<string>();
+  const pairs: [number, number][] = [];
+  const addPair = (a: number, b: number) => {
+    if (a === b) return;
+    const key = a < b ? `${a}:${b}` : `${b}:${a}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    pairs.push([a, b]);
+  };
+  for (const list of postings.values()) {
+    if (list.length < 2) continue;
+    const ranked = [...list].sort((a, b) => nodes[b].members.length - nodes[a].members.length);
+    if (ranked.length <= 28) {
+      for (let i = 0; i < ranked.length; i++) for (let j = i + 1; j < ranked.length; j++) addPair(ranked[i], ranked[j]);
+    } else {
+      const hosts = ranked.slice(0, 4);
+      for (const host of hosts) for (const other of ranked) addPair(host, other);
+    }
+  }
+
+  const parent = nodes.map((_, index) => index);
+  const find = (index: number): number => {
+    let root = index;
+    while (parent[root] !== root) root = parent[root];
+    while (parent[index] !== root) {
+      const next = parent[index];
+      parent[index] = root;
+      index = next;
+    }
+    return root;
+  };
+
+  const scored = pairs.map(([a, b]) => ({ a, b, cosine: cosine(nodes[a].centroid, nodes[b].centroid) }));
+  scored.sort((a, b) => b.cosine - a.cosine);
+
+  for (const pair of scored) {
+    const ia = find(pair.a);
+    const ib = find(pair.b);
+    if (ia === ib) continue;
+    const left = nodes[ia];
+    const right = nodes[ib];
+    if (desk(left.members[0]) !== desk(right.members[0])) continue;
+    if (left.ts && right.ts && Math.abs(left.ts - right.ts) > WINDOW_MS) continue;
+    if (left.members.length + right.members.length > MAX_MERGED) continue;
+    let shared = 0;
+    const [smaller, larger] = left.rare.size <= right.rare.size ? [left, right] : [right, left];
+    for (const token of smaller.rare) if (larger.rare.has(token)) shared++;
+    const similarity = cosine(left.centroid, right.centroid);
+    const close = similarity >= MERGE_COSINE || (shared >= MERGE_RARE && similarity >= MERGE_COSINE_WITH_RARE) || (shared >= 3 && similarity >= 0.2) || (shared >= 4 && similarity >= 0.3);
+    if (!close) continue;
+    const [host, extra] = left.members.length >= right.members.length ? [left, right] : [right, left];
+    if (host.members.length + extra.members.length > MAX_MERGED) continue;
+    const fit = extra.vecs.map((vec) => cosine(vec, host.centroid)).sort((a, b) => a - b);
+    const median = fit[Math.floor(fit.length / 2)] ?? 0;
+    const kept = fit.filter((score) => score >= MEMBER_FLOOR).length / fit.length;
+    // A short file needs several shared event words (border+wall, Huang+affair), not one famous name.
+    const anchored = (extra.members.length <= 12 && shared >= 4 && similarity >= 0.28 && median >= 0.28)
+      || (extra.members.length === 1 && shared >= 3 && similarity >= 0.2 && median >= 0.2);
+    const strong = similarity >= 0.58 && shared >= 4;
+    if (!anchored) {
+      if (median < (strong ? 0.34 : 0.42)) continue;
+      if (kept < (strong ? 0.5 : 0.75)) continue;
+    }
+    const vecs = host.vecs.concat(extra.vecs);
+    const centroid = averageVec(vecs);
+    const docs = left.docs.concat(right.docs);
+    const times = [...left.members, ...right.members].map((member) => member.ts).filter((ts) => ts > 0).sort((a, b) => a - b);
+    nodes[ia] = {
+      members: left.members.concat(right.members),
+      docs,
+      vecs,
+      centroid,
+      rare: signatureOf(docs),
+      ts: times.length ? times[Math.floor(times.length / 2)] : 0,
+    };
+    parent[ib] = ia;
+  }
+
+  return nodes.filter((_, index) => find(index) === index).map((node) => node.members);
 }

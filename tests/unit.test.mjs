@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { tagFor, isSensitive, SNARK_TAGS } from '../lib/tags.ts';
 import { makeLocator } from '../lib/places.ts';
-import { group } from '../lib/cluster.ts';
+import { group, leadsEcho } from '../lib/cluster.ts';
 import { storyIndex, resolveStory } from '../lib/stories.ts';
-import { buildClusters, dedupeItems, inCategory, isBreaking, stableClusterId, topStory } from '../lib/feeds.ts';
+import { buildClusters, dedupeItems, inCategory, isBreaking, stableClusterId, topStory, trendCards } from '../lib/feeds.ts';
 import { canonicalLink, canonicalTitle, dedupeArchive } from '../lib/dedupe.ts';
 import { INGEST_BATCH_LIMIT, archiveQueue, planIngest } from '../lib/db.ts';
 import { filterPosts, hasTweetList, INTERCEPT_QUERY, linkify, mergePosts, nextCursor, parseTweets } from '../lib/intercepts.ts';
@@ -362,6 +362,52 @@ test('event grouping: Nvidia names merge, a lone Trump token does not, satire st
   assert.ok(!bucketOf(wall).includes(inmates), 'a different Supreme Court case must stay out of the border wall file');
   assert.ok(!bucketOf(trial).includes(chappelle), 'Kirk trial and a Chappelle remark are different events');
   assert.ok(!bucketOf(bates).includes(henry), 'two different deadline trades must stay apart');
+});
+
+test('second pass merges the same Big Bend ruling and the same Nvidia affair, and old ids redirect', () => {
+  const now = Date.parse('2026-11-09T18:00:00Z');
+  const src = (name) => ({ id: name.toLowerCase().replace(/[^a-z0-9]+/g, ''), name, url: 'https://example.com/rss', home: 'https://example.com', category: 'world', lean: 'Center' });
+  const item = (title, name, slug, h) => ({ title, link: `https://ex/${slug}`, snippet: '', ts: now - h * 3600e3, image: null, source: src(name), place: null, geo: null });
+  const wallA = item('Supreme Court says border wall construction can continue in west Texas', 'NPR', 'wall-texas', 2);
+  const wallB = item('News Wrap: Supreme Court allows border wall construction in Big Bend', 'PBS', 'wall-bend', 1);
+  const wallC = item('Supreme Court allows border wall construction in the Big Bend area of Texas', 'CBS', 'wall-cbs', 3);
+  const inmates = item('Supreme Court seems likely to limit prisoners ability to sue over medical care', 'NPR', 'inmates', 2);
+  const nvidiaA = item("Trump says FBI is looking into Nvidia CEO Jensen Huang's affair with alleged Chinese agent", 'PBS', 'nvidia-fbi', 1);
+  const nvidiaB = item("Nvidia's Jensen Huang faces scrutiny over alleged affair with Chinese spy", 'CBS', 'nvidia-scrutiny', 2);
+  const nvidiaWho = item('Who is the suspected Chinese spy at the centre of the Nvidia investigation', 'BBC', 'nvidia-who', 4);
+  const dana = item('Dana White declines Trump offer to be White House press secretary', 'BBC', 'dana', 1);
+  const danaFun = item('Trump says idea to make UFC CEO Dana White his press secretary was just a little fun', 'NPR', 'dana-fun', 2);
+  const brand = item('Russell Brand sentenced to 10 years in prison for rape and sexual assault', 'BBC', 'brand', 1);
+  const brandAside = item('What Russell Brand revealed about the delusion of Trump officials', 'NPR', 'brand-aside', 2);
+  const clusters = buildClusters([wallA, wallB, wallC, inmates, nvidiaA, nvidiaB, nvidiaWho, dana, danaFun, brand, brandAside], now);
+  const textOf = (cluster) => [cluster.lead.title, ...cluster.members.map((member) => member.title)].join(' ');
+  const wallFiles = clusters.filter((cluster) => /border wall|big bend/i.test(textOf(cluster)));
+  const nvidiaFiles = clusters.filter((cluster) => /nvidia|jensen huang/i.test(textOf(cluster)));
+  assert.equal(wallFiles.length, 1, 'Big Bend border-wall headlines are one file');
+  assert.ok(wallFiles[0].members.some((member) => member.link.endsWith('/wall-texas')));
+  assert.ok(wallFiles[0].members.some((member) => member.link.endsWith('/wall-bend')));
+  assert.ok(!wallFiles[0].members.some((member) => member.link.endsWith('/inmates')), 'a different Supreme Court case stays out');
+  assert.ok(nvidiaFiles.length >= 1 && nvidiaFiles.length <= 2, `Nvidia files ${nvidiaFiles.length}`);
+  const fbiFile = nvidiaFiles.find((cluster) => cluster.members.some((member) => member.link.endsWith('/nvidia-fbi')));
+  assert.ok(fbiFile.members.some((member) => member.link.endsWith('/nvidia-scrutiny')), 'FBI and scrutiny angles are one file');
+  assert.ok(!fbiFile.members.some((member) => /dana white/i.test(member.title)));
+  const danaFile = clusters.find((cluster) => /dana white/i.test(cluster.lead.title));
+  assert.equal(danaFile.members.length, 2);
+  const brandFile = clusters.find((cluster) => /sentenced/i.test(cluster.lead.title) && /russell brand/i.test(textOf(cluster)));
+  assert.ok(brandFile);
+  assert.ok(!brandFile.members.some((member) => /delusion/i.test(member.title)), 'an unrelated Brand headline stays out');
+  const index = storyIndex(clusters, now);
+  for (const cluster of [wallFiles[0], fbiFile, danaFile]) {
+    for (const member of cluster.members) {
+      const via = resolveStory(index, stableClusterId(member.link));
+      assert.equal(via.story.id, cluster.id);
+      if (stableClusterId(member.link) !== cluster.id) assert.equal(via.redirectTo, cluster.id);
+    }
+  }
+  const cards = trendCards(clusters, {}, now, 8);
+  for (let i = 0; i < cards.length; i++) {
+    for (let j = i + 1; j < cards.length; j++) assert.equal(leadsEcho(cards[i], cards[j]), false, `${cards[i].title} / ${cards[j].title}`);
+  }
 });
 
 test('every story href and member link hash resolves, and old member ids redirect', () => {
