@@ -5,14 +5,17 @@ import VoteButton from "./VoteButton";
 import { ClearanceBadge, DisinfoBadge, SatireBadge } from "./Badges";
 import Thumb from "./Thumb";
 import { canHotlink } from "@/lib/hotlink";
+import Highlight from "./Highlight";
+import { termsOf } from "@/lib/query";
 
-export default function TrendingList({ rows, now, compact = false, testid = "trending" }: { rows: (ArchiveRow & { score?: number; rank?: number })[]; now: number; compact?: boolean; testid?: string }) {
+export default function TrendingList({ rows, now, compact = false, testid = "trending", q = "" }: { rows: (ArchiveRow & { score?: number; rank?: number; snippet?: string })[]; now: number; compact?: boolean; testid?: string; q?: string }) {
   const seen = new Set<string>();
   const unique = rows.filter((row) => {
     if (!row.id || seen.has(row.id)) return false;
     seen.add(row.id);
     return true;
   });
+  const terms = termsOf(q);
   if (!unique.length) return <p className="px-4 py-6 font-mono text-sm text-zinc-500" data-testid={`${testid}-empty`}>No signal yet. Check back after the next sweep.</p>;
   return (
     <ol className="divide-y divide-zinc-800/80 px-4" data-testid={testid}>
@@ -23,10 +26,13 @@ export default function TrendingList({ rows, now, compact = false, testid = "tre
             <Link href={`/story/${r.id}`} data-testid="story-link" className={`font-semibold leading-snug text-zinc-100 hover:text-emerald-300 hover:underline ${compact ? "text-sm" : ""}`}>
               {r.category === "satire" && <SatireBadge />}
               {r.breaking && r.category !== "satire" && <span className="mr-1.5 rounded-sm bg-red-600 px-1 align-middle font-mono text-[10px] font-bold text-white">FLASH</span>}
-              {r.title}<span className="sr-only"> (opens the story file)</span>
+              <Highlight text={r.title} terms={terms} /><span className="sr-only"> (opens the story file)</span>
             </Link>
+            {r.snippet && terms.length > 0 && (
+              <p className="mt-1 text-sm leading-snug text-zinc-400"><Highlight text={r.snippet} terms={terms} /></p>
+            )}
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] uppercase tracking-wide text-zinc-400">
-              <a href={r.link} target="_blank" rel="noopener noreferrer" className="text-emerald-300/90 hover:underline">{r.source}</a>
+              <a href={r.link} target="_blank" rel="noopener noreferrer" className="text-emerald-300/90 hover:underline"><Highlight text={r.source} terms={terms} /></a>
               {r.published_at && <><span aria-hidden="true">//</span><RelTime ts={Date.parse(r.published_at)} serverNow={now} /></>}
               {r.outlets > 1 && <span className="text-amber-300/90" data-testid="outlet-chip">+{r.outlets - 1} more {r.outlets - 1 === 1 ? "outlet" : "outlets"}</span>}
               {!compact && (r.category === "satire" ? <DisinfoBadge /> : <ClearanceBadge outlets={r.outlets} />)}

@@ -4,6 +4,7 @@ import Clock from "./Clock";
 import FxControls from "./FxControls";
 import NavActive from "./NavActive";
 import RelTime from "./RelTime";
+import SearchField from "./SearchField";
 import { CATEGORIES } from "@/lib/sources";
 import { SITE } from "@/lib/config";
 
@@ -23,6 +24,11 @@ export default function Header({ fetchedAt, feedsOk, feedsTotal, active }: { fet
             <span className="block font-mono text-[11px] tracking-wider text-zinc-400">{SITE.tagline}</span>
           </span>
         </Link>
+        <form action="/search" method="get" role="search" className="order-last flex w-full min-w-0 gap-2 sm:order-none sm:w-64" aria-label="Search the wire">
+          <label htmlFor="header-q" className="sr-only">Search headlines. Press slash to focus.</label>
+          <SearchField id="header-q" placeholder="Search  /" />
+          <button type="submit" className="btn-solid shrink-0 px-3">Go</button>
+        </form>
         <div className="flex flex-col items-start gap-2 sm:items-end">
         <FxControls />
         <div className="grid grid-cols-2 gap-x-5 gap-y-0.5 font-mono text-[11px] uppercase tracking-wider text-zinc-400 sm:text-right">

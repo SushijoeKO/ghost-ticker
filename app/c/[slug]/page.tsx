@@ -7,6 +7,8 @@ import AdSlot from "@/components/AdSlot";
 import { CATEGORIES } from "@/lib/sources";
 import { balanceByLean, diversify, inCategory } from "@/lib/feeds";
 import { getWireWithImages as getWire } from "@/lib/wire-cache";
+import FilterBar from "@/components/FilterBar";
+import { clusterToDoc, hasFilters, matchesFilters, parseFilters } from "@/lib/query";
 
 export const revalidate = 300;
 export const dynamicParams = false;
@@ -15,18 +17,22 @@ export function generateStaticParams() {
   return CATEGORIES.map((c) => ({ slug: c.slug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
   const { slug } = await params;
   const cat = CATEGORIES.find((c) => c.slug === slug);
-  return cat ? { title: `${cat.label} headlines`, description: cat.blurb, alternates: { canonical: `/c/${slug}` } } : {};
+  const filtered = hasFilters(parseFilters(await searchParams));
+  return cat ? { title: `${cat.label} headlines`, description: cat.blurb, alternates: { canonical: `/c/${slug}` }, robots: filtered ? { index: false, follow: true } : undefined } : {};
 }
 
-export default async function CategoryPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function CategoryPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { slug } = await params;
+  const filters = parseFilters(await searchParams);
   const cat = CATEGORIES.find((c) => c.slug === slug);
   if (!cat) notFound();
   const w = await getWire();
-  const items = cat.slug === "politics" ? balanceByLean(inCategory(w, "politics"), 60, 4) : diversify(inCategory(w, cat.slug), 60, 6);
+  const applied = { ...filters, section: "" as const, satire: cat.slug === "satire" || filters.satire };
+  const desk = inCategory(w, cat.slug).filter((cluster) => matchesFilters(clusterToDoc(cluster), applied, w.fetchedAt));
+  const items = cat.slug === "politics" ? balanceByLean(desk, 60, 4) : diversify(desk, 60, 6);
   const ticker = inCategory(w, "breaking").slice(0, 18);
   const tickerFallback = w.clusters.filter((c) => !c.satire).slice(0, 12);
   const ok = w.feeds.filter((f) => f.ok).length;
@@ -45,6 +51,9 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
             </p>
           )}
         </div>
+        <form action={`/c/${cat.slug}`} method="get" className="panel p-3">
+          <FilterBar filters={{ ...filters, section: "" }} sections={false} />
+        </form>
         <AdSlot kind="header" />
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">

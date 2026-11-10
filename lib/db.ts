@@ -112,7 +112,7 @@ export async function ingest(clusters: Cluster[], idOverride?: string): Promise<
   return counts.reduce<number>((sum, n) => sum + (typeof n === "number" ? n : 0), 0);
 }
 
-export const search = (q: string) => rpc<(ArchiveRow & { rank: number })[]>("gt_search", { p_q: q, p_limit: 50 });
+export const search = (q: string) => rpc<(ArchiveRow & { rank: number })[]>("gt_search", { p_q: q, p_limit: 80 }, { revalidate: 120 });
 function clusterTrending<T extends ArchiveRow & { score?: number }>(rows: T[]): T[] {
   const tagged = rows.map((row) => ({
     title: row.title,

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { tagFor, isSensitive, SNARK_TAGS } from '../lib/tags.ts';
 import { makeLocator } from '../lib/places.ts';
 import { group, leadsEcho } from '../lib/cluster.ts';
+import { archiveToDoc, clusterToDoc, combineWithMembers, matchesFilters, parseFilters, rankDocs, relevance, termsOf } from '../lib/query.ts';
 import { storyIndex, resolveStory } from '../lib/stories.ts';
 import { buildClusters, dedupeItems, inCategory, isBreaking, stableClusterId, topStory, trendCards } from '../lib/feeds.ts';
 import { canonicalLink, canonicalTitle, dedupeArchive } from '../lib/dedupe.ts';
@@ -437,4 +438,51 @@ test('every story href and member link hash resolves, and old member ids redirec
       if (stableClusterId(member.link) !== cluster.id) assert.equal(viaLink.redirectTo, cluster.id);
     }
   }
+});
+
+test('search ranking prefers a title hit, then recency, and filters satire, desk, time, and clearance', () => {
+  const now = Date.parse('2026-11-09T18:00:00Z');
+  const doc = (over) => clusterToDoc({
+    id: over.id,
+    satire: !!over.satire,
+    breaking: !!over.breaking,
+    outlets: over.outlets ?? 1,
+    categories: over.categories ?? [over.category ?? 'politics'],
+    image: null,
+    lead: {
+      title: over.title,
+      snippet: over.snippet ?? '',
+      link: 'https://ex/' + over.id,
+      ts: now - (over.hours ?? 1) * 3600e3,
+      source: { name: over.source ?? 'NPR', category: over.category ?? 'politics' },
+    },
+    members: over.members ?? [],
+  });
+  const nvidia = doc({ id: 'nv', title: 'FBI investigates Nvidia CEO Jensen Huang affair', snippet: 'The board opened a review.', outlets: 8, hours: 2 });
+  const snippetOnly = doc({ id: 'sn', title: 'Markets wrap', snippet: 'Jensen Huang was mentioned in passing.', hours: 1 });
+  const older = doc({ id: 'old', title: 'Jensen Huang affair timeline', hours: 20 });
+  const joke = doc({ id: 'joke', title: 'Jensen Huang affair, claims satire desk', satire: true, category: 'satire', categories: ['satire'] });
+  const sports = doc({ id: 'sp', title: 'Jensen Huang throws out a pitch', category: 'sports', categories: ['sports'], source: 'ESPN' });
+  const query = parseFilters({ q: 'Jensen Huang affair' });
+  const ranked = rankDocs([snippetOnly, older, joke, sports, nvidia].filter((item) => matchesFilters(item, query, now)), query);
+  assert.equal(ranked[0].id, 'nv');
+  assert.ok(ranked.findIndex((item) => item.id === 'old') > ranked.findIndex((item) => item.id === 'nv'));
+  assert.ok(!ranked.some((item) => item.id === 'joke'));
+  assert.ok(relevance(nvidia, termsOf('Jensen Huang affair')) > relevance(snippetOnly, termsOf('Jensen Huang affair')));
+  const satireOn = parseFilters({ q: 'affair', satire: '1' });
+  const withJoke = rankDocs([joke, nvidia].filter((item) => matchesFilters(item, satireOn, now)), satireOn);
+  assert.ok(withJoke.some((item) => item.id === 'joke'));
+  const desk = [nvidia, sports].filter((item) => matchesFilters(item, parseFilters({ section: 'sports', q: 'Huang' }), now));
+  assert.deepEqual(desk.map((item) => item.id), ['sp']);
+  const recent = [older, nvidia].filter((item) => matchesFilters(item, parseFilters({ range: '6h', q: 'Huang' }), now));
+  assert.deepEqual(recent.map((item) => item.id), ['nv']);
+  const cosmic = [nvidia, snippetOnly].filter((item) => matchesFilters(item, parseFilters({ level: '4' }), now));
+  assert.deepEqual(cosmic.map((item) => item.id), ['nv']);
+  const outlet = [nvidia, sports].filter((item) => matchesFilters(item, parseFilters({ outlet: 'espn' }), now));
+  assert.deepEqual(outlet.map((item) => item.id), ['sp']);
+  const archive = archiveToDoc({ id: 'arch', title: 'Old Huang file', link: 'https://ex/arch', source: 'BBC', category: 'world', image: null, published_at: new Date(now - 3600e3).toISOString(), outlets: 2, breaking: false, votes: 0, rank: 0 });
+  const same = archiveToDoc({ id: 'other', title: 'duplicate', link: 'https://ex/nv', source: 'BBC', category: 'world', image: null, published_at: new Date(now).toISOString(), outlets: 1, breaking: false, votes: 0, rank: 1 });
+  const folded = combineWithMembers([nvidia], new Map([['https://ex/nv', 'nv']]), [archive, same]);
+  assert.equal(folded.length, 2);
+  assert.equal(folded.find((item) => item.id === 'nv').archiveRank, 1);
 });
